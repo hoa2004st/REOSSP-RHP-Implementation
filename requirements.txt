@@ -1,0 +1,41 @@
+# Python Dependencies for Satellite Scheduling Experiments
+
+# Core optimization
+pyomo>=6.4.0
+
+# Numerical computing
+numpy>=1.21.0
+
+# Data analysis and output
+pandas>=1.3.0
+
+# Optional: For comparison plots and visualization
+matplotlib>=3.4.0
+
+# Optional: For enhanced visualizations
+# seaborn>=0.11.0
+
+# ============================================================================
+# FREE OPEN-SOURCE MILP SOLVERS (choose at least one)
+# ============================================================================
+
+# Option 1: CBC (COIN-OR Branch and Cut) - RECOMMENDED
+# Fast, reliable, well-supported
+# Installation: conda install -c conda-forge coincbc
+# OR download from: https://github.com/coin-or/Cbc/releases
+
+# Option 2: HiGHS - FASTEST for large problems
+# Modern, high-performance solver
+highspy>=1.5.0
+
+# Option 3: GLPK (GNU Linear Programming Kit)
+# Widely available, good for small-medium problems
+# Installation: conda install -c conda-forge glpk
+# OR: apt-get install glpk-utils (Linux)
+# OR: brew install glpk (Mac)
+# Note: Use pyomo with glpk executable
+
+# ============================================================================
+# COMMERCIAL SOLVER (optional, if you have a license)
+# ============================================================================
+# gurobipy>=10.0.0  # Requires free academic or commercial license
