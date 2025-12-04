@@ -13,14 +13,12 @@ print("="*80)
 print("TESTING ALL 3 METHODS (EOSSP, REOSSP-Exact, REOSSP-RHP)")
 print("="*80)
 
-# Create tiny instance: 2 satellites, 2 stages, 50 time steps
-params = InstanceParameters(
-    instance_id=999,
-    S=8,  # Just 5 stages
-    K=5,  # Only 3 satellites
-    J_sk=20,  # Very few slots
-    T=500  # Only 500 time steps for quick test
-)
+# IMPORTANT: J_sk must be >= K (need enough slots for all satellites)
+S, K, J_sk, T = 10, 3, 12, 36  # Tiny instance parameters over 1 hours = 3600 seconds (36 time steps)
+S, K, J_sk, T = 10, 3, 12, 432  # Tiny instance parameters over 12 hours = 43200 seconds (432 time steps)
+time_limit_minutes = 10
+
+params = InstanceParameters(instance_id=999, S=S, K=K, J_sk=J_sk, T=T)
 
 print(f"\nProblem size:")
 print(f"  Satellites: {params.K}")
@@ -34,7 +32,7 @@ print(f"\n" + "="*80)
 print(f"METHOD 1: EOSSP BASELINE")
 print(f"="*80)
 solver1 = EOSSPSolver(params)
-results1 = solver1.solve(time_limit_minutes=1, solver_name='highs')
+results1 = solver1.solve(time_limit_minutes=time_limit_minutes, solver_name='highs')
 print(f"Status: {results1['status']}")
 print(f"Objective: {results1['objective']:.2f}")
 print(f"Data downlinked: {results1['data_downlinked_gb']:.4f} GB")
@@ -45,7 +43,7 @@ print(f"\n" + "="*80)
 print(f"METHOD 2: REOSSP EXACT")
 print(f"="*80)
 solver2 = REOSSPExactSolver(params)
-results2 = solver2.solve(time_limit_minutes=1, solver_name='highs')
+results2 = solver2.solve(time_limit_minutes=time_limit_minutes, solver_name='highs')
 print(f"Status: {results2['status']}")
 print(f"Objective: {results2['objective']:.2f}")
 print(f"Data downlinked: {results2['data_downlinked_gb']:.4f} GB")
@@ -56,7 +54,7 @@ print(f"\n" + "="*80)
 print(f"METHOD 3: REOSSP RHP")
 print(f"="*80)
 solver3 = REOSSPRHPSolver(params)
-results3 = solver3.solve(time_limit_per_stage_minutes=1, solver_name='highs')
+results3 = solver3.solve(time_limit_per_stage_minutes=time_limit_minutes, solver_name='highs')
 print(f"Status: {results3['status']}")
 print(f"Objective: {results3['objective']:.2f}")
 print(f"Data downlinked: {results3['data_downlinked_gb']:.4f} GB")

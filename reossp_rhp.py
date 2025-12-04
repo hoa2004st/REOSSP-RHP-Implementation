@@ -28,6 +28,10 @@ class REOSSPRHPSolver:
         self.downlink_plan = []
         self.total_propellant = 0
         
+        # Track state between stages
+        self.battery_state = {k: params.B_max for k in range(params.K)}  # Initialize at full
+        self.data_state = {k: 0 for k in range(params.K)}  # Initialize at empty
+        
     def build_stage_model(self, current_stage, prev_assignments=None):
         """
         Build optimization model for current stage + lookahead stages
@@ -62,6 +66,7 @@ class REOSSPRHPSolver:
         model.z = pyo.Var(model.S_local, model.K, model.J, domain=pyo.Binary)
         model.x = pyo.Var(model.K, model.T_local, model.N_target, domain=pyo.Binary)
         model.y = pyo.Var(model.K, model.T_local, model.N_ground, domain=pyo.Binary)
+        model.c = pyo.Var(model.K, model.T_local, domain=pyo.Binary)  # Charging decision
         model.b = pyo.Var(model.K, model.T_local, domain=pyo.NonNegativeReals, bounds=(0, p.B_max))
         model.d = pyo.Var(model.K, model.T_local, domain=pyo.NonNegativeReals, bounds=(0, p.D_max))
         
@@ -71,37 +76,17 @@ class REOSSPRHPSolver:
             model.S_maneuver = pyo.Set(initialize=maneuver_stages)
             model.u = pyo.Var(model.S_maneuver, model.K, model.J, model.J, domain=pyo.Binary)
         
-        # Objective: maximize activities in current stage (prioritize near-term)
+        # Objective: maximize activities (all time steps weighted equally)
         def objective_rule(m):
-            # Current stage time steps
-            current_stage_times = range(stage_boundaries[current_stage], 
-                                       stage_boundaries[current_stage + 1])
-            
+            # All time steps in optimization window (current + lookahead)
             total_downlinks = sum(m.y[k, t, g] 
                                 for k in m.K 
-                                for t in current_stage_times if t in m.T_local
+                                for t in m.T_local
                                 for g in m.N_ground)
             total_observations = sum(m.x[k, t, n] 
                                    for k in m.K 
-                                   for t in current_stage_times if t in m.T_local
+                                   for t in m.T_local
                                    for n in m.N_target)
-            
-            # Add lookahead with reduced weight
-            if stages_to_optimize > 1:
-                lookahead_times = range(stage_boundaries[current_stage + 1], t_end)
-                lookahead_weight = 0.5
-                
-                lookahead_downlinks = sum(m.y[k, t, g] 
-                                        for k in m.K 
-                                        for t in lookahead_times if t in m.T_local
-                                        for g in m.N_ground)
-                lookahead_observations = sum(m.x[k, t, n] 
-                                           for k in m.K 
-                                           for t in lookahead_times if t in m.T_local
-                                           for n in m.N_target)
-                
-                total_downlinks += lookahead_weight * lookahead_downlinks
-                total_observations += lookahead_weight * lookahead_observations
             
             return p.C * total_downlinks + total_observations
         
@@ -153,8 +138,8 @@ class REOSSPRHPSolver:
                 stage_propellant = sum(m.u[s, k, j1, j2] * p.maneuver_costs[s, k, j1, j2]
                                      for s in m.S_maneuver
                                      for j1 in m.J for j2 in m.J)
-                # Add propellant already used in previous stages
-                prev_propellant = sum(self.total_propellant for _ in [0]) if hasattr(self, 'total_propellant') else 0
+                # Subtract propellant already used in previous stages
+                prev_propellant = self.total_propellant if hasattr(self, 'total_propellant') else 0
                 return stage_propellant <= p.c_max - prev_propellant
             model.propellant = pyo.Constraint(model.K, rule=propellant_rule)
         
@@ -173,20 +158,34 @@ class REOSSPRHPSolver:
         model.vis_ground = pyo.Constraint(model.K, model.T_local, model.N_ground,
                                          rule=visibility_ground_rule)
         
+        def visibility_sun_rule(m, k, t):
+            if not p.V_sun[k, t]:
+                return m.c[k, t] == 0
+            return pyo.Constraint.Skip
+        model.vis_sun = pyo.Constraint(model.K, model.T_local,
+                                      rule=visibility_sun_rule)
+        
         def one_activity_rule(m, k, t):
             total_obs = sum(m.x[k, t, n] for n in m.N_target)
             total_comm = sum(m.y[k, t, g] for g in m.N_ground)
-            return total_obs + total_comm <= 1
+            return total_obs + total_comm + m.c[k, t] <= 1
         model.one_activity = pyo.Constraint(model.K, model.T_local, rule=one_activity_rule)
         
         # 5. Battery and data dynamics
         def battery_dynamics_rule(m, k, t):
             if t == t_start:
-                # Initial or inherited battery level
-                return m.b[k, t] == p.B_max * 0.9
+                # Initial battery level (full) or inherited from previous stage
+                if current_stage == 0:
+                    # First stage starts with full battery
+                    return m.b[k, t] == p.B_max
+                else:
+                    # Inherit battery level from end of previous stage
+                    inherited_battery = self.battery_state.get(k, p.B_max)
+                    return m.b[k, t] == inherited_battery
             
             b_prev = m.b[k, t-1]
-            charge = p.B_charge if p.V_sun[k, t-1] else 0
+            # Charging from sun (only when charging decision is active)
+            charge = m.c[k, t-1] * p.B_charge
             obs_consumption = sum(m.x[k, t-1, n] for n in m.N_target) * p.B_obs
             comm_consumption = sum(m.y[k, t-1, g] for g in m.N_ground) * p.B_comm
             
@@ -196,7 +195,13 @@ class REOSSPRHPSolver:
         
         def data_dynamics_rule(m, k, t):
             if t == t_start:
-                return m.d[k, t] == 0
+                # Inherit data from previous stage (data accumulates)
+                if current_stage == 0:
+                    return m.d[k, t] == 0
+                else:
+                    # Inherit data level from end of previous stage
+                    inherited_data = self.data_state.get(k, 0)
+                    return m.d[k, t] == inherited_data
             
             d_prev = m.d[k, t-1]
             data_gen = sum(m.x[k, t-1, n] for n in m.N_target) * p.D_obs
@@ -286,10 +291,17 @@ class REOSSPRHPSolver:
                                 if pyo.value(model.u[stage, k, j1, j2]) > 0.5:
                                     self.total_propellant += p.maneuver_costs[stage, k, j1, j2]
                 
+                # Save battery and data state at end of stage for next stage
+                t_final = t_end - 1
+                if t_final in model.T_local:
+                    for k in model.K:
+                        self.battery_state[k] = max(0, min(p.B_max, pyo.value(model.b[k, t_final])))
+                        self.data_state[k] = max(0, min(p.D_max, pyo.value(model.d[k, t_final])))
+                
                 # Update for next stage
                 prev_assignments = stage_assignments
             else:
-                print(f"    Warning: Stage {stage} failed to solve")
+                print(f"    Warning: Stage {stage+1} failed to solve")
         
         # Calculate final metrics
         total_observations = len(self.observation_plan)

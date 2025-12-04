@@ -48,6 +48,9 @@ class REOSSPExactSolver:
         # y[k, t, g] = 1 if satellite k downlinks to ground station g at time t
         model.y = pyo.Var(model.K, model.T, model.N_ground, domain=pyo.Binary)
         
+        # c[k, t] = 1 if satellite k is charging at time t
+        model.c = pyo.Var(model.K, model.T, domain=pyo.Binary)
+        
         # State Variables
         model.b = pyo.Var(model.K, model.T, domain=pyo.NonNegativeReals, bounds=(0, p.B_max))
         model.d = pyo.Var(model.K, model.T, domain=pyo.NonNegativeReals, bounds=(0, p.D_max))
@@ -56,22 +59,15 @@ class REOSSPExactSolver:
         # u[s, k, j_from, j_to] = 1 if satellite k maneuvers from slot j_from to j_to between stage s and s+1
         model.u = pyo.Var(pyo.RangeSet(0, p.S - 2), model.K, model.J, model.J, domain=pyo.Binary)
         
-        # Objective: maximize (C * downlinks + observations) - maneuver penalty
+        # Objective: maximize (C * downlinks + observations)
+        # Note: Maneuvers are constrained by propellant budget, not penalized in objective
         def objective_rule(m):
             total_downlinks = sum(m.y[k, t, g] 
                                 for k in m.K for t in m.T for g in m.N_ground)
             total_observations = sum(m.x[k, t, n] 
                                    for k in m.K for t in m.T for n in m.N_target)
             
-            # Small penalty for maneuvers (to prefer fewer maneuvers when objectives are equal)
-            maneuver_penalty = 0.001 * sum(m.u[s, k, j1, j2]
-                                          for s in range(p.S - 1)
-                                          for k in m.K
-                                          for j1 in m.J
-                                          for j2 in m.J
-                                          if j1 != j2)
-            
-            return p.C * total_downlinks + total_observations - maneuver_penalty
+            return p.C * total_downlinks + total_observations
         
         model.obj = pyo.Objective(rule=objective_rule, sense=pyo.maximize)
         
@@ -132,20 +128,28 @@ class REOSSPExactSolver:
         model.vis_ground = pyo.Constraint(model.K, model.T, model.N_ground, 
                                          rule=visibility_ground_rule)
         
-        # 6. One activity per satellite per time step
+        def visibility_sun_rule(m, k, t):
+            if not p.V_sun[k, t]:
+                return m.c[k, t] == 0
+            return pyo.Constraint.Skip
+        model.vis_sun = pyo.Constraint(model.K, model.T, 
+                                      rule=visibility_sun_rule)
+        
+        # 6. One activity per satellite per time step (observe, downlink, or charge)
         def one_activity_rule(m, k, t):
             total_obs = sum(m.x[k, t, n] for n in m.N_target)
             total_comm = sum(m.y[k, t, g] for g in m.N_ground)
-            return total_obs + total_comm <= 1
+            return total_obs + total_comm + m.c[k, t] <= 1
         model.one_activity = pyo.Constraint(model.K, model.T, rule=one_activity_rule)
         
         # 7. Battery dynamics
         def battery_dynamics_rule(m, k, t):
             if t == 0:
-                return m.b[k, t] == p.B_max * 0.9
+                return m.b[k, t] == p.B_max
             
             b_prev = m.b[k, t-1]
-            charge = p.B_charge if p.V_sun[k, t-1] else 0
+            # Charging from sun (only when charging decision is active)
+            charge = m.c[k, t-1] * p.B_charge
             obs_consumption = sum(m.x[k, t-1, n] for n in m.N_target) * p.B_obs
             comm_consumption = sum(m.y[k, t-1, g] for g in m.N_ground) * p.B_comm
             
