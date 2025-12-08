@@ -22,7 +22,7 @@ from results_analysis import (
 )
 
 
-def run_single_instance(params, run_exact=True, run_rhp=True, solver_name='highs'):
+def run_single_instance(params, run_exact=True, run_rhp=True, solver_name='gurobi'):
     """
     Run all three methods on a single instance
     
@@ -30,7 +30,7 @@ def run_single_instance(params, run_exact=True, run_rhp=True, solver_name='highs
         params: InstanceParameters object
         run_exact: Whether to run REOSSP-Exact (can be slow)
         run_rhp: Whether to run REOSSP-RHP
-        solver_name: Which solver to use ('cbc', 'highs', or 'glpk')
+        solver_name: Which solver to use ('gurobi', 'cbc', or 'glpk')
         
     Returns:
         Dict with results from all methods
@@ -123,7 +123,7 @@ def run_single_instance(params, run_exact=True, run_rhp=True, solver_name='highs
     return results
 
 
-def run_all_experiments(run_exact=True, run_rhp=True, subset=3, solver_name='highs'):
+def run_all_experiments(run_exact=True, run_rhp=True, subset=3, solver_name='gurobi'):
     """
     Run all 24 instances from the paper
     
@@ -131,7 +131,7 @@ def run_all_experiments(run_exact=True, run_rhp=True, subset=3, solver_name='hig
         run_exact: Whether to run REOSSP-Exact (time-consuming)
         run_rhp: Whether to run REOSSP-RHP
         subset: If specified, only run first N instances (for testing)
-        solver_name: Which solver to use ('cbc', 'highs', or 'glpk')
+        solver_name: Which solver to use ('gurobi', 'cbc', or 'glpk')
         
     Returns:
         List of results dicts
@@ -187,7 +187,7 @@ def main():
     RUN_EXACT = True  # Set to False to skip REOSSP-Exact (faster testing)
     RUN_RHP = True
     SUBSET = None  # Set to integer to run only first N instances for testing
-    SOLVER = 'highs'  # Using HiGHS solver
+    SOLVER = 'gurobi'  # Using Gurobi solver
     
     # For quick testing, you can use:
     # SUBSET = 3  # Run only first 3 instances

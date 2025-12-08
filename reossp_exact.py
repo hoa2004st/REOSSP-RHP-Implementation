@@ -7,7 +7,9 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverStatus, TerminationCondition
 import numpy as np
 import time
+import os
 from parameters import InstanceParameters
+import api_key
 
 
 class REOSSPExactSolver:
@@ -173,38 +175,49 @@ class REOSSPExactSolver:
         self.model = model
         return model
     
-    def solve(self, time_limit_minutes=60, solver_name='highs'):
+    def solve(self, time_limit_minutes=60, solver_name='gurobi'):
         """
-        Solve the model using HiGHS solver
+        Solve the model using Gurobi solver
         
         Args:
             time_limit_minutes: Time limit in minutes
-            solver_name: Solver to use (default: 'highs')
+            solver_name: Solver to use (default: 'gurobi')
         """
         if self.model is None:
             self.build_model()
         
-        # Map solver names to factory names (HiGHS only)
+        # Get Gurobi license credentials and write to gurobi.env file
+        key_instance = api_key.key()
+        gurobi_options = key_instance.get_options()
+        
+        # Write credentials to gurobi.env file in current directory
+        with open('gurobi.env', 'w') as f:
+            f.write(f"WLSACCESSID={gurobi_options['WLSACCESSID']}\n")
+            f.write(f"WLSSECRET={gurobi_options['WLSSECRET']}\n")
+            f.write(f"LICENSEID={gurobi_options['LICENSEID']}\n")
+        
+        # Map solver names to factory names
         solver_map = {
-            'highs': 'highs',
-            'appsi_highs': 'highs',
+            'gurobi': 'gurobi',
+            'gurobi_direct': 'gurobi_direct',
+            'gurobi_persistent': 'gurobi_persistent',
         }
         
-        factory_name = solver_map.get(solver_name, 'highs')
+        factory_name = solver_map.get(solver_name, 'gurobi')
         
-        # Try standard HiGHS interface
+        # Initialize Gurobi solver
         try:
-            solver = pyo.SolverFactory('highs')
-        except:
             solver = pyo.SolverFactory(factory_name)
+        except:
+            solver = pyo.SolverFactory('gurobi')
         
         if not solver.available():
-            raise RuntimeError(f"HiGHS solver is not available. Please install it: pip install highspy")
+            raise RuntimeError(f"Gurobi solver is not available. Please install it: pip install gurobipy")
         
-        # Set HiGHS solver options
-        solver.options['time_limit'] = time_limit_minutes * 60
-        solver.options['mip_rel_gap'] = 0.01
-        solver.options['parallel'] = 'on'
+        # Set Gurobi solver options
+        solver.options['TimeLimit'] = time_limit_minutes * 60
+        solver.options['MIPGap'] = 0.01
+        solver.options['Threads'] = 0  # Use all available threads
         
         start_time = time.time()
         results = solver.solve(self.model, tee=False, load_solutions=False)
@@ -269,7 +282,7 @@ class REOSSPExactSolver:
 if __name__ == "__main__":
     from parameters import InstanceParameters
     
-    print("Testing REOSSP-Exact Solver with HiGHS...")
+    print("Testing REOSSP-Exact Solver with Gurobi...")
     
     test_params = InstanceParameters(
         instance_id=999,
@@ -281,7 +294,7 @@ if __name__ == "__main__":
     solver = REOSSPExactSolver(test_params)
     print(f"Building model for S={test_params.S}, K={test_params.K}, J_sk={test_params.J_sk}...")
     
-    results = solver.solve(time_limit_minutes=1, solver_name='highs')
+    results = solver.solve(time_limit_minutes=1, solver_name='gurobi')
     
     print("\nResults:")
     print(f"  Status: {results['status']}")

@@ -7,7 +7,9 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverStatus, TerminationCondition
 import numpy as np
 import time
+import os
 from parameters import InstanceParameters
+import api_key
 
 
 class REOSSPRHPSolver:
@@ -213,16 +215,26 @@ class REOSSPRHPSolver:
         
         return model
     
-    def solve(self, time_limit_per_stage_minutes=5, solver_name='highs'):
+    def solve(self, time_limit_per_stage_minutes=5, solver_name='gurobi'):
         """
-        Solve using rolling horizon procedure with HiGHS solver
+        Solve using rolling horizon procedure with Gurobi solver
         
         Args:
             time_limit_per_stage_minutes: Time limit for each stage optimization
-            solver_name: Solver to use (default: 'highs')
+            solver_name: Solver to use (default: 'gurobi')
         """
         p = self.params
         total_runtime = 0
+        
+        # Get Gurobi license credentials and write to gurobi.env file (once for all stages)
+        key_instance = api_key.key()
+        gurobi_options = key_instance.get_options()
+        
+        # Write credentials to gurobi.env file in current directory
+        with open('gurobi.env', 'w') as f:
+            f.write(f"WLSACCESSID={gurobi_options['WLSACCESSID']}\n")
+            f.write(f"WLSSECRET={gurobi_options['WLSSECRET']}\n")
+            f.write(f"LICENSEID={gurobi_options['LICENSEID']}\n")
         
         prev_assignments = None
         
@@ -232,19 +244,19 @@ class REOSSPRHPSolver:
             # Build and solve stage model
             model = self.build_stage_model(stage, prev_assignments)
             
-            # Use HiGHS solver
+            # Initialize Gurobi solver
             try:
-                solver = pyo.SolverFactory('highs')
+                solver = pyo.SolverFactory('gurobi')
             except:
-                solver = pyo.SolverFactory('highs')
+                solver = pyo.SolverFactory('gurobi')
             
             if not solver.available():
-                raise RuntimeError(f"HiGHS solver is not available. Please install it: pip install highspy")
+                raise RuntimeError(f"Gurobi solver is not available. Please install it: pip install gurobipy")
             
-            # Set HiGHS solver options
-            solver.options['time_limit'] = time_limit_per_stage_minutes * 60
-            solver.options['mip_rel_gap'] = 0.02
-            solver.options['parallel'] = 'on'
+            # Set Gurobi solver options
+            solver.options['TimeLimit'] = time_limit_per_stage_minutes * 60
+            solver.options['MIPGap'] = 0.02
+            solver.options['Threads'] = 0  # Use all available threads
             
             start_time = time.time()
             results = solver.solve(model, tee=False, load_solutions=False)
@@ -337,7 +349,7 @@ if __name__ == "__main__":
     solver = REOSSPRHPSolver(test_params, lookahead=1)
     print(f"Solving with rolling horizon for S={test_params.S}, K={test_params.K}, J_sk={test_params.J_sk}...")
     
-    results = solver.solve(time_limit_per_stage_minutes=0.5, solver_name='highs')
+    results = solver.solve(time_limit_per_stage_minutes=0.5, solver_name='gurobi')
     
     print("\nResults:")
     print(f"  Status: {results['status']}")

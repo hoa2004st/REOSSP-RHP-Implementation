@@ -45,6 +45,7 @@ comparison_plots.png
 *.mps
 *.sol
 gurobi.log
+gurobi.env
 
 # IDE
 .vscode/
@@ -64,3 +65,6 @@ Thumbs.db
 
 # Keep example/template files
 !example_results.csv
+
+# Gurobi license file
+api_key.py

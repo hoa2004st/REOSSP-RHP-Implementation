@@ -38,4 +38,4 @@ highspy>=1.5.0
 # ============================================================================
 # COMMERCIAL SOLVER (optional, if you have a license)
 # ============================================================================
-# gurobipy>=10.0.0  # Requires free academic or commercial license
+gurobipy>=10.0.0  # Requires free academic or commercial license

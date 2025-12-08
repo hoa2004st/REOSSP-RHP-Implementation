@@ -7,7 +7,9 @@ import pyomo.environ as pyo
 from pyomo.opt import SolverStatus, TerminationCondition
 import numpy as np
 import time
+import os
 from parameters import InstanceParameters
+import api_key
 
 
 class EOSSPSolver:
@@ -134,13 +136,13 @@ class EOSSPSolver:
         self.model = model
         return model
     
-    def solve(self, time_limit_minutes=60, solver_name='highs'):
+    def solve(self, time_limit_minutes=60, solver_name='gurobi'):
         """
-        Solve the model using HiGHS solver
+        Solve the model using Gurobi solver
         
         Args:
             time_limit_minutes: Time limit in minutes
-            solver_name: Solver to use (default: 'highs')
+            solver_name: Solver to use (default: 'gurobi')
         
         Returns:
             dict: Results including objective value, runtime, and solution status
@@ -148,31 +150,39 @@ class EOSSPSolver:
         if self.model is None:
             self.build_model()
         
-        # Map solver names to factory names (HiGHS only)
+        # Get Gurobi license credentials and write to gurobi.env file
+        key_instance = api_key.key()
+        gurobi_options = key_instance.get_options()
+        
+        # Write credentials to gurobi.env file in current directory
+        with open('gurobi.env', 'w') as f:
+            f.write(f"WLSACCESSID={gurobi_options['WLSACCESSID']}\n")
+            f.write(f"WLSSECRET={gurobi_options['WLSSECRET']}\n")
+            f.write(f"LICENSEID={gurobi_options['LICENSEID']}\n")
+        
+        # Map solver names to factory names
         solver_map = {
-            'highs': 'highs',
-            'appsi_highs': 'highs',  # Convert to standard interface
+            'gurobi': 'gurobi',
+            'gurobi_direct': 'gurobi_direct',
+            'gurobi_persistent': 'gurobi_persistent',
         }
         
         factory_name = solver_map.get(solver_name, solver_name)
         
-        # Try persistent solver interface for HiGHS if available
+        # Initialize Gurobi solver
         try:
-            if factory_name == 'highs':
-                solver = pyo.SolverFactory('highs')
-            else:
-                solver = pyo.SolverFactory(factory_name)
+            solver = pyo.SolverFactory(factory_name)
         except:
             # Fallback to standard interface
-            solver = pyo.SolverFactory(factory_name)
+            solver = pyo.SolverFactory('gurobi')
         
         if not solver.available():
             raise RuntimeError(f"Solver '{factory_name}' is not available. Please install it first.")
         
-        # Set HiGHS solver options
-        solver.options['time_limit'] = time_limit_minutes * 60
-        solver.options['mip_rel_gap'] = 0.01
-        solver.options['parallel'] = 'on'
+        # Set Gurobi solver options
+        solver.options['TimeLimit'] = time_limit_minutes * 60
+        solver.options['MIPGap'] = 0.01
+        solver.options['Threads'] = 0  # Use all available threads
         
         # Solve
         print(f"Starting solver {factory_name}...")
@@ -272,7 +282,7 @@ if __name__ == "__main__":
     solver = EOSSPSolver(test_params)
     print(f"Building model for S={test_params.S}, K={test_params.K}, J_sk={test_params.J_sk}...")
     
-    results = solver.solve(time_limit_minutes=1, solver_name='highs')
+    results = solver.solve(time_limit_minutes=1, solver_name='gurobi')
     
     print("\nResults:")
     print(f"  Status: {results['status']}")
