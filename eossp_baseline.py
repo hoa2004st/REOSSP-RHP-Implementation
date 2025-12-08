@@ -39,6 +39,9 @@ class EOSSPSolver:
         # y[k, t, g] = 1 if satellite k downlinks to ground station g at time t
         model.y = pyo.Var(model.K, model.T, model.N_ground, domain=pyo.Binary)
         
+        # c[k, t] = 1 if satellite k is charging at time t
+        model.c = pyo.Var(model.K, model.T, domain=pyo.Binary)
+        
         # State Variables (continuous for efficiency)
         # b[k, t] = battery level of satellite k at time t
         model.b = pyo.Var(model.K, model.T, domain=pyo.NonNegativeReals, bounds=(0, p.B_max))
@@ -73,23 +76,30 @@ class EOSSPSolver:
         model.vis_ground = pyo.Constraint(model.K, model.T, model.N_ground, 
                                          rule=visibility_ground_rule)
         
-        # 2. One activity per satellite per time step
+        def visibility_sun_rule(m, k, t):
+            if not p.V_sun[k, t]:
+                return m.c[k, t] == 0
+            return pyo.Constraint.Skip
+        model.vis_sun = pyo.Constraint(model.K, model.T, 
+                                      rule=visibility_sun_rule)
+        
+        # 2. One activity per satellite per time step (observe, downlink, or charge)
         def one_activity_rule(m, k, t):
             total_obs = sum(m.x[k, t, n] for n in m.N_target)
             total_comm = sum(m.y[k, t, g] for g in m.N_ground)
-            return total_obs + total_comm <= 1
+            return total_obs + total_comm + m.c[k, t] <= 1
         model.one_activity = pyo.Constraint(model.K, model.T, rule=one_activity_rule)
         
         # 3. Battery dynamics
         def battery_dynamics_rule(m, k, t):
             if t == 0:
                 # Initial battery level
-                return m.b[k, t] == p.B_max * 0.9  # Start at 90%
+                return m.b[k, t] == p.B_max  # Start at 100%
             
             b_prev = m.b[k, t-1]
             
-            # Charging from sun (convert numpy bool to int)
-            charge = p.B_charge * int(p.V_sun[k, t-1])
+            # Charging from sun (only when charging decision is active)
+            charge = m.c[k, t-1] * p.B_charge
             
             # Consumption from observation
             obs_consumption = sum(m.x[k, t-1, n] for n in m.N_target) * p.B_obs
