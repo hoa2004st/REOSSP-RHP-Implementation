@@ -16,10 +16,10 @@ print("="*80)
 # Create tiny instance: 2 satellites, 2 stages, 50 time steps
 params = InstanceParameters(
     instance_id=999,
-    S=8,  # Just 5 stages
-    K=5,  # Only 3 satellites
-    J_sk=20,  # Very few slots
-    T=500  # Only 500 time steps for quick test
+    S=5,  # Just 5 stages
+    K=3,  # Only 3 satellites
+    J_sk=2,  # Very few slots
+    T=50  # Only 500 time steps for quick test
 )
 
 print(f"\nProblem size:")
