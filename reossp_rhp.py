@@ -9,7 +9,6 @@ import numpy as np
 import time
 import os
 from parameters import InstanceParameters
-import api_key
 
 
 class REOSSPRHPSolver:
@@ -19,16 +18,17 @@ class REOSSPRHPSolver:
     Much faster than exact method but potentially suboptimal
     """
     
-    def __init__(self, params: InstanceParameters, lookahead=1):
+    def __init__(self, params: InstanceParameters, lookahead=1, weighted_objective=True):
         self.params = params
         self.lookahead = lookahead  # L=1 means optimize current + next stage
+        self.weighted_objective = weighted_objective  # True: current 100%, lookahead 50%; False: equal weights
         self.results = None
         
         # Track solution across stages
         self.orbital_assignments = {}  # {stage: {sat: slot}}
         self.observation_plan = []
         self.downlink_plan = []
-        self.total_propellant = 0
+        self.satellite_propellant = {k: 0 for k in range(params.K)}  # Per-satellite cumulative propellant
         
         # Track state between stages
         self.battery_state = {k: params.B_max for k in range(params.K)}  # Initialize at full
@@ -78,19 +78,37 @@ class REOSSPRHPSolver:
             model.S_maneuver = pyo.Set(initialize=maneuver_stages)
             model.u = pyo.Var(model.S_maneuver, model.K, model.J, model.J, domain=pyo.Binary)
         
-        # Objective: maximize activities (all time steps weighted equally)
+        # Objective: maximize activities
         def objective_rule(m):
-            # All time steps in optimization window (current + lookahead)
-            total_downlinks = sum(m.y[k, t, g] 
-                                for k in m.K 
-                                for t in m.T_local
-                                for g in m.N_ground)
-            total_observations = sum(m.x[k, t, n] 
-                                   for k in m.K 
-                                   for t in m.T_local
-                                   for n in m.N_target)
+            obj = 0
+            stage_boundaries = p.get_stage_boundaries()
             
-            return p.C * total_downlinks + total_observations
+            for s in m.S_local:
+                # Optionally weight current stage higher than lookahead
+                # Paper doesn't specify, but helps prioritize immediate decisions
+                if self.weighted_objective:
+                    weight = 1.0 if s == current_stage else 0.5  # Current stage priority
+                else:
+                    weight = 1.0  # Equal weights (standard RHP as in paper)
+                
+                # Time range for this stage
+                t_start_s = stage_boundaries[s]
+                t_end_s = stage_boundaries[s + 1]
+                time_range_s = [t for t in m.T_local if t_start_s <= t < t_end_s]
+                
+                # Activities in this stage
+                stage_downlinks = sum(m.y[k, t, g] 
+                                    for k in m.K 
+                                    for t in time_range_s
+                                    for g in m.N_ground)
+                stage_observations = sum(m.x[k, t, n] 
+                                       for k in m.K 
+                                       for t in time_range_s
+                                       for n in m.N_target)
+                
+                obj += weight * (p.C * stage_downlinks + stage_observations)
+            
+            return obj
         
         model.obj = pyo.Objective(rule=objective_rule, sense=pyo.maximize)
         
@@ -135,14 +153,14 @@ class REOSSPRHPSolver:
             model.maneuver_to = pyo.Constraint(model.S_local, model.K, model.J,
                                               rule=maneuver_to_rule)
             
-            # Cumulative propellant constraint
+            # Cumulative propellant constraint (per satellite)
             def propellant_rule(m, k):
                 stage_propellant = sum(m.u[s, k, j1, j2] * p.maneuver_costs[s, k, j1, j2]
                                      for s in m.S_maneuver
                                      for j1 in m.J for j2 in m.J)
-                # Subtract propellant already used in previous stages
-                prev_propellant = self.total_propellant if hasattr(self, 'total_propellant') else 0
-                return stage_propellant <= p.c_max - prev_propellant
+                # Subtract propellant already used by THIS satellite in previous stages
+                prev_propellant_k = self.satellite_propellant.get(k, 0)
+                return stage_propellant + prev_propellant_k <= p.c_max
             model.propellant = pyo.Constraint(model.K, rule=propellant_rule)
         
         # 4. Visibility and activity constraints
@@ -225,22 +243,14 @@ class REOSSPRHPSolver:
         """
         p = self.params
         total_runtime = 0
+        total_vars = 0
+        total_constrs = 0
         
-        # Get Gurobi license credentials and write to gurobi.env file (once for all stages)
-        key_instance = api_key.key()
-        gurobi_options = key_instance.get_options()
-        
-        # Write credentials to gurobi.env file in current directory
-        with open('gurobi.env', 'w') as f:
-            f.write(f"WLSACCESSID={gurobi_options['WLSACCESSID']}\n")
-            f.write(f"WLSSECRET={gurobi_options['WLSSECRET']}\n")
-            f.write(f"LICENSEID={gurobi_options['LICENSEID']}\n")
-        
+        # Gurobi will use gurobi.lic file for licensing
         prev_assignments = None
         
         for stage in range(p.S):
-            print(f"  Solving stage {stage + 1}/{p.S}...")
-            
+                        
             # Build and solve stage model
             model = self.build_stage_model(stage, prev_assignments)
             
@@ -257,11 +267,16 @@ class REOSSPRHPSolver:
             solver.options['TimeLimit'] = time_limit_per_stage_minutes * 60
             solver.options['MIPGap'] = 0.02
             solver.options['Threads'] = 0  # Use all available threads
+            solver.options['LogToConsole'] = 0  # Suppress console output
             
             start_time = time.time()
             results = solver.solve(model, tee=False, load_solutions=False)
             stage_runtime = time.time() - start_time
             total_runtime += stage_runtime
+            
+            # Track model size
+            total_vars += model.nvariables()
+            total_constrs += model.nconstraints()
             
             # Load solution if available
             if (results.solver.termination_condition == TerminationCondition.optimal or 
@@ -295,13 +310,14 @@ class REOSSPRHPSolver:
                             if pyo.value(model.y[k, t, g]) > 0.5:
                                 self.downlink_plan.append((k, t, g))
                 
-                # Calculate propellant used in this stage transition
+                # Calculate propellant used in this stage transition (per satellite)
                 if stage < p.S - 1 and hasattr(model, 'u'):
                     for k in model.K:
                         for j1 in model.J:
                             for j2 in model.J:
                                 if pyo.value(model.u[stage, k, j1, j2]) > 0.5:
-                                    self.total_propellant += p.maneuver_costs[stage, k, j1, j2]
+                                    prop_cost = p.maneuver_costs[stage, k, j1, j2]
+                                    self.satellite_propellant[k] = self.satellite_propellant.get(k, 0) + prop_cost
                 
                 # Save battery and data state at end of stage for next stage
                 t_final = t_end - 1
@@ -309,11 +325,18 @@ class REOSSPRHPSolver:
                     for k in model.K:
                         self.battery_state[k] = max(0, min(p.B_max, pyo.value(model.b[k, t_final])))
                         self.data_state[k] = max(0, min(p.D_max, pyo.value(model.d[k, t_final])))
+                        
+                
+                # Stage summary
+                stage_obs = sum(1 for (k, t, n) in self.observation_plan if t >= t_start and t < t_end)
+                stage_down = sum(1 for (k, t, g) in self.downlink_plan if t >= t_start and t < t_end)
+                print(f"  Stage {stage+1} solved: {stage_obs} observations, {stage_down} downlinks")
                 
                 # Update for next stage
                 prev_assignments = stage_assignments
             else:
-                print(f"    Warning: Stage {stage+1} failed to solve")
+                print(f"    ❌ WARNING: Stage {stage+1} failed to solve! Status: {results.solver.status}")
+                print(f"    Termination: {results.solver.termination_condition}")
         
         # Calculate final metrics
         total_observations = len(self.observation_plan)
@@ -328,7 +351,10 @@ class REOSSPRHPSolver:
             'data_downlinked_gb': data_downlinked_gb,
             'total_observations': total_observations,
             'total_downlinks': total_downlinks,
-            'propellant_used': self.total_propellant
+            'satellite_propellant': self.satellite_propellant,
+            'num_variables': total_vars,
+            'num_constraints': total_constrs,
+            'num_stages_solved': p.S
         }
         
         return self.results
@@ -357,4 +383,5 @@ if __name__ == "__main__":
     print(f"  Runtime: {results['runtime_minutes']:.2f} minutes")
     print(f"  Data downlinked: {results['data_downlinked_gb']:.2f} GB")
     print(f"  Observations: {results['total_observations']:.0f}")
-    print(f"  Propellant used: {results['propellant_used']:.2f} m/s")
+    total_prop = sum(results['satellite_propellant'].values())
+    print(f"  Propellant used: {total_prop:.2f} m/s (total across all satellites)")

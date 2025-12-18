@@ -1,11 +1,11 @@
 """
 Parameter Generation Module for Satellite Scheduling Experiments
-Generates random instances with synthetic visibility matrices
+Generates instances with realistic or synthetic visibility matrices
 """
 
 import numpy as np
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 
 @dataclass
@@ -24,6 +24,9 @@ class InstanceParameters:
     dt: int = 100  # Time step in seconds
     T: int = 144  # Total time steps - 4 hours (144*100s = 14400s = 4h) for faster solving
     
+    # Visibility generation mode
+    use_realistic_visibility: bool = False  # If True, use poliastro/astropy; if False, use synthetic
+    
     # Data parameters (in MB for easier computation)
     D_max: float = 128 * 1024  # 128 GB in MB
     D_obs: float = 102.5  # MB per observation
@@ -41,7 +44,7 @@ class InstanceParameters:
     # Objective weight
     C: float = 2.0  # Weight for downlinks vs observations
     
-    # Visibility matrices (synthetic)
+    # Visibility matrices (synthetic or realistic)
     V_target: np.ndarray = None  # [K, T, targets]
     V_ground: np.ndarray = None  # [K, T, ground_stations]
     V_sun: np.ndarray = None  # [K, T]
@@ -50,17 +53,54 @@ class InstanceParameters:
     maneuver_costs: np.ndarray = None  # [S-1, K, J_sk, J_sk] delta-v costs
     
     def __post_init__(self):
-        """Generate synthetic visibility matrices and maneuver costs"""
+        """Generate visibility matrices and maneuver costs"""
         # Calculate T if not provided (14 days by default)
         if self.T is None:
             self.T = (self.T_r * 86400) // self.dt  # 14 days * 86400 s/day / 100 s = 12096
         
         if self.V_target is None:
-            self._generate_visibility_matrices()
+            if self.use_realistic_visibility:
+                self._generate_realistic_visibility_matrices()
+            else:
+                self._generate_synthetic_visibility_matrices()
         if self.maneuver_costs is None:
             self._generate_maneuver_costs()
     
-    def _generate_visibility_matrices(self):
+    def _generate_realistic_visibility_matrices(self):
+        """
+        Generate realistic visibility matrices using orbital mechanics
+        Uses poliastro for orbit propagation and astropy for coordinate transformations
+        """
+        try:
+            from visibility_generator import generate_quick_visibility
+            
+            print(f"\nGenerating REALISTIC visibility matrices using orbital mechanics...")
+            print(f"  Satellites: {self.K}, Time steps: {self.T}, dt: {self.dt}s")
+            
+            # Number of targets and ground stations (scaled by instance complexity)
+            n_targets = 50 + self.S * 5
+            n_ground = 5
+            
+            # Generate using orbital mechanics
+            self.V_target, self.V_ground, self.V_sun = generate_quick_visibility(
+                K=self.K,
+                T=self.T,
+                dt=self.dt,
+                seed=self.instance_id,
+                n_targets=n_targets,
+                n_ground=n_ground
+            )
+            
+            print(f"  ✓ Realistic visibility matrices generated successfully!")
+            
+        except ImportError as e:
+            print(f"\n⚠ Warning: Could not import visibility_generator (poliastro/astropy).")
+            print(f"  Error: {e}")
+            print(f"  Falling back to synthetic visibility matrices...")
+            print(f"  To use realistic visibility, install: pip install poliastro astropy")
+            self._generate_synthetic_visibility_matrices()
+    
+    def _generate_synthetic_visibility_matrices(self):
         """
         Generate synthetic visibility matrices
         Simplification: Use random binary visibility instead of SGP4 propagation
@@ -131,10 +171,14 @@ class InstanceParameters:
         return [s * stage_length for s in range(self.S + 1)]
 
 
-def generate_instance_set() -> List[InstanceParameters]:
+def generate_instance_set(use_realistic_visibility: bool = False) -> List[InstanceParameters]:
     """
     Generate 24 random instances with different parameter combinations
     S ∈ {8, 9, 12}, K ∈ {5, 6}, J_sk ∈ {20, 40, 60, 80}
+    
+    Args:
+        use_realistic_visibility: If True, use poliastro/astropy for orbital mechanics
+                                  If False, use synthetic random visibility
     """
     S_values = [8, 9, 12]
     K_values = [5, 6]
@@ -151,7 +195,8 @@ def generate_instance_set() -> List[InstanceParameters]:
                     instance_id=instance_id,
                     S=S,
                     K=K,
-                    J_sk=J_sk
+                    J_sk=J_sk,
+                    use_realistic_visibility=use_realistic_visibility
                 )
                 instances.append(params)
                 instance_id += 1
@@ -161,15 +206,52 @@ def generate_instance_set() -> List[InstanceParameters]:
 
 if __name__ == "__main__":
     # Test parameter generation
-    instances = generate_instance_set()
-    print(f"Generated {len(instances)} instances")
+    print("="*80)
+    print("TESTING PARAMETER GENERATION")
+    print("="*80)
     
-    # Show first instance details
-    inst = instances[0]
-    print(f"\nInstance 1: S={inst.S}, K={inst.K}, J_sk={inst.J_sk}")
-    print(f"  Target visibility shape: {inst.V_target.shape}")
-    print(f"  Ground visibility shape: {inst.V_ground.shape}")
-    print(f"  Sun visibility shape: {inst.V_sun.shape}")
-    print(f"  Maneuver costs shape: {inst.maneuver_costs.shape}")
-    print(f"  Total possible observations: {inst.V_target.sum()}")
-    print(f"  Total possible downlinks: {inst.V_ground.sum()}")
+    # Test 1: Synthetic visibility (fast)
+    print("\n1. Testing SYNTHETIC visibility generation (fast):")
+    print("-"*80)
+    inst_synthetic = InstanceParameters(
+        instance_id=1, S=8, K=5, J_sk=20, use_realistic_visibility=False
+    )
+    print(f"\nInstance 1 (Synthetic): S={inst_synthetic.S}, K={inst_synthetic.K}, J_sk={inst_synthetic.J_sk}")
+    print(f"  Target visibility shape: {inst_synthetic.V_target.shape}")
+    print(f"  Ground visibility shape: {inst_synthetic.V_ground.shape}")
+    print(f"  Sun visibility shape: {inst_synthetic.V_sun.shape}")
+    print(f"  Maneuver costs shape: {inst_synthetic.maneuver_costs.shape}")
+    print(f"  Total possible observations: {inst_synthetic.V_target.sum()}")
+    print(f"  Total possible downlinks: {inst_synthetic.V_ground.sum()}")
+    
+    # Test 2: Realistic visibility (requires poliastro/astropy)
+    print("\n2. Testing REALISTIC visibility generation (orbital mechanics):")
+    print("-"*80)
+    try:
+        # Use smaller problem for faster testing
+        inst_realistic = InstanceParameters(
+            instance_id=999, S=8, K=3, J_sk=20, T=100, use_realistic_visibility=True
+        )
+        print(f"\nInstance 999 (Realistic): S={inst_realistic.S}, K={inst_realistic.K}, J_sk={inst_realistic.J_sk}")
+        print(f"  Target visibility shape: {inst_realistic.V_target.shape}")
+        print(f"  Ground visibility shape: {inst_realistic.V_ground.shape}")
+        print(f"  Sun visibility shape: {inst_realistic.V_sun.shape}")
+        print(f"  Maneuver costs shape: {inst_realistic.maneuver_costs.shape}")
+        print(f"  Total possible observations: {inst_realistic.V_target.sum()}")
+        print(f"  Total possible downlinks: {inst_realistic.V_ground.sum()}")
+        print(f"\n  ✓ Realistic visibility generation SUCCESSFUL!")
+    except Exception as e:
+        print(f"\n  ✗ Could not generate realistic visibility: {e}")
+        print(f"  Install dependencies: pip install poliastro astropy")
+    
+    # Test 3: Generate full instance set
+    print("\n3. Generating full instance set (synthetic):")
+    print("-"*80)
+    instances = generate_instance_set(use_realistic_visibility=False)
+    print(f"Generated {len(instances)} instances")
+    print(f"First instance: S={instances[0].S}, K={instances[0].K}, J_sk={instances[0].J_sk}")
+    print(f"Last instance: S={instances[-1].S}, K={instances[-1].K}, J_sk={instances[-1].J_sk}")
+    
+    print("\n" + "="*80)
+    print("TESTING COMPLETE")
+    print("="*80)

@@ -9,7 +9,6 @@ import numpy as np
 import time
 import os
 from parameters import InstanceParameters
-import api_key
 
 
 class REOSSPExactSolver:
@@ -186,16 +185,7 @@ class REOSSPExactSolver:
         if self.model is None:
             self.build_model()
         
-        # Get Gurobi license credentials and write to gurobi.env file
-        key_instance = api_key.key()
-        gurobi_options = key_instance.get_options()
-        
-        # Write credentials to gurobi.env file in current directory
-        with open('gurobi.env', 'w') as f:
-            f.write(f"WLSACCESSID={gurobi_options['WLSACCESSID']}\n")
-            f.write(f"WLSSECRET={gurobi_options['WLSSECRET']}\n")
-            f.write(f"LICENSEID={gurobi_options['LICENSEID']}\n")
-        
+        # Gurobi will use gurobi.lic file for licensing
         # Map solver names to factory names
         solver_map = {
             'gurobi': 'gurobi',
@@ -218,6 +208,7 @@ class REOSSPExactSolver:
         solver.options['TimeLimit'] = time_limit_minutes * 60
         solver.options['MIPGap'] = 0.01
         solver.options['Threads'] = 0  # Use all available threads
+        solver.options['LogToConsole'] = 0  # Suppress console output
         
         start_time = time.time()
         results = solver.solve(self.model, tee=False, load_solutions=False)
@@ -263,7 +254,11 @@ class REOSSPExactSolver:
                 'data_downlinked_gb': data_downlinked_gb,
                 'total_observations': total_observations,
                 'total_downlinks': total_downlinks,
-                'propellant_used': propellant_used
+                'propellant_used': propellant_used,
+                'num_variables': self.model.nvariables(),
+                'num_constraints': self.model.nconstraints(),
+                'num_nonzeros': sum(c.body.polynomial_degree() if hasattr(c.body, 'polynomial_degree') else 0 
+                                   for c in self.model.component_data_objects(pyo.Constraint, active=True))
             }
         else:
             self.results = {
@@ -273,7 +268,10 @@ class REOSSPExactSolver:
                 'data_downlinked_gb': 0,
                 'total_observations': 0,
                 'total_downlinks': 0,
-                'propellant_used': 0.0
+                'propellant_used': 0.0,
+                'num_variables': self.model.nvariables(),
+                'num_constraints': self.model.nconstraints(),
+                'num_nonzeros': 0
             }
         
         return self.results

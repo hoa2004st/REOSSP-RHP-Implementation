@@ -9,7 +9,6 @@ import numpy as np
 import time
 import os
 from parameters import InstanceParameters
-import api_key
 
 
 class EOSSPSolver:
@@ -150,16 +149,7 @@ class EOSSPSolver:
         if self.model is None:
             self.build_model()
         
-        # Get Gurobi license credentials and write to gurobi.env file
-        key_instance = api_key.key()
-        gurobi_options = key_instance.get_options()
-        
-        # Write credentials to gurobi.env file in current directory
-        with open('gurobi.env', 'w') as f:
-            f.write(f"WLSACCESSID={gurobi_options['WLSACCESSID']}\n")
-            f.write(f"WLSSECRET={gurobi_options['WLSSECRET']}\n")
-            f.write(f"LICENSEID={gurobi_options['LICENSEID']}\n")
-        
+        # Gurobi will use gurobi.lic file for licensing
         # Map solver names to factory names
         solver_map = {
             'gurobi': 'gurobi',
@@ -183,36 +173,25 @@ class EOSSPSolver:
         solver.options['TimeLimit'] = time_limit_minutes * 60
         solver.options['MIPGap'] = 0.01
         solver.options['Threads'] = 0  # Use all available threads
-        
-        # Solve
-        print(f"Starting solver {factory_name}...")
-        print(f"Model statistics:")
-        print(f"  Variables: {self.model.nvariables()}")
-        print(f"  Constraints: {self.model.nconstraints()}")
-        print(f"  Time limit: {time_limit_minutes} minutes")
-        print("Solving (this may take a while)...")
+        solver.options['LogToConsole'] = 0  # Suppress console output
         
         start_time = time.time()
         
-        # Set load_solutions=False to handle infeasibility
-        results = solver.solve(self.model, tee=True, load_solutions=False)
+        # Solve with minimal output
+        results = solver.solve(self.model, tee=False, load_solutions=False)
         runtime = time.time() - start_time
-        print(f"Solver finished in {runtime:.2f} seconds")
         
         # Check if solution exists before loading
         if (results.solver.termination_condition == TerminationCondition.optimal or
             results.solver.termination_condition == TerminationCondition.maxTimeLimit):
             # Load the solution
             self.model.solutions.load_from(results)
-        else:
-            print(f"Warning: Solver terminated with condition: {results.solver.termination_condition}")
         
         # Extract results
         status = results.solver.status
         termination = results.solver.termination_condition
         
         if termination == TerminationCondition.infeasible:
-            print("Model is INFEASIBLE - no solution exists with current constraints")
             self.results = {
                 'status': 'infeasible',
                 'objective': 0,
@@ -249,7 +228,11 @@ class EOSSPSolver:
                 'data_downlinked_gb': data_downlinked_gb,
                 'total_observations': total_observations,
                 'total_downlinks': total_downlinks,
-                'propellant_used': 0.0  # No maneuvers in baseline
+                'propellant_used': 0.0,  # No maneuvers in baseline
+                'num_variables': self.model.nvariables(),
+                'num_constraints': self.model.nconstraints(),
+                'num_nonzeros': sum(c.body.polynomial_degree() if hasattr(c.body, 'polynomial_degree') else 0 
+                                   for c in self.model.component_data_objects(pyo.Constraint, active=True))
             }
         else:
             self.results = {
@@ -259,7 +242,10 @@ class EOSSPSolver:
                 'data_downlinked_gb': 0,
                 'total_observations': 0,
                 'total_downlinks': 0,
-                'propellant_used': 0.0
+                'propellant_used': 0.0,
+                'num_variables': self.model.nvariables(),
+                'num_constraints': self.model.nconstraints(),
+                'num_nonzeros': 0
             }
         
         return self.results
