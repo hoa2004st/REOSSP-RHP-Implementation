@@ -37,20 +37,27 @@ class InstanceParameters:
     B_charge: float = 41.48  # kJ per time step when in sun
     B_obs: float = 16.26  # kJ per observation
     B_comm: float = 1.20  # kJ per downlink
+    B_time: float = 2.0  # kJ per time step (baseline consumption)
     
     # Propellant constraint
     c_max: float = 750  # m/s per satellite
     
+    # Battery cost for reconfiguration maneuvers (Section 3.3.4 of paper)
+    B_recon: float = 0.50  # kJ per maneuver (energy cost for orbital transfer)
+    
     # Objective weight
     C: float = 2.0  # Weight for downlinks vs observations
     
-    # Visibility matrices (synthetic or realistic)
-    V_target: np.ndarray = None  # [K, T, targets]
-    V_ground: np.ndarray = None  # [K, T, ground_stations]
-    V_sun: np.ndarray = None  # [K, T]
+    # Visibility matrices - SLOT-DEPENDENT (4D as in paper)
+    # Paper constraint (11a-c): y^s_{ktp} <= sum_{i,j} V^s_{ktjp} * x^s_{kij}
+    # Visibility depends on which orbital slot j the satellite is in
+    V_target: np.ndarray = None  # [S, K, T_per_stage, J_sk, targets]
+    V_ground: np.ndarray = None  # [S, K, T_per_stage, J_sk, ground_stations]
+    V_sun: np.ndarray = None  # [S, K, T_per_stage, J_sk]
     
-    # Maneuver costs (for REOSSP)
-    maneuver_costs: np.ndarray = None  # [S-1, K, J_sk, J_sk] delta-v costs
+    # Maneuver costs (for REOSSP) - delta-v between orbital slots
+    # Paper Section 3.3.2: c^s_{kij} is propellant cost to move from slot i to slot j
+    maneuver_costs: np.ndarray = None  # [S, K, J_sk, J_sk] delta-v costs
     
     def __post_init__(self):
         """Generate visibility matrices and maneuver costs"""
@@ -102,8 +109,9 @@ class InstanceParameters:
     
     def _generate_synthetic_visibility_matrices(self):
         """
-        Generate synthetic visibility matrices
-        Simplification: Use random binary visibility instead of SGP4 propagation
+        Generate synthetic SLOT-DEPENDENT visibility matrices (4D as in paper)
+        Key difference from 3D: Visibility depends on orbital slot position
+        Paper: V^s_{ktjp} indicates if target p is visible from slot j at time t in stage s
         """
         np.random.seed(self.instance_id)
         
@@ -111,59 +119,59 @@ class InstanceParameters:
         n_targets = 50 + self.S * 5
         n_ground = 5
         
-        # Target visibility: ~5% probability per time step
-        V_target_raw = np.random.random((self.K, self.T, n_targets)) < 0.10
+        # Calculate time steps per stage
+        T_per_stage = self.T // self.S
         
-        # Apply constraint: only one target visible per satellite per time step
-        self.V_target = np.zeros((self.K, self.T, n_targets), dtype=bool)
-        for k in range(self.K):
-            for t in range(self.T):
-                visible_targets = np.where(V_target_raw[k, t, :])[0]
-                if len(visible_targets) > 0:
-                    # Randomly select one visible target
-                    selected = np.random.choice(visible_targets)
-                    self.V_target[k, t, selected] = True
+        # Initialize 4D visibility matrices: [S, K, T_per_stage, J_sk, targets/ground/sun]
+        self.V_target = np.zeros((self.S, self.K, T_per_stage, self.J_sk, n_targets), dtype=bool)
+        self.V_ground = np.zeros((self.S, self.K, T_per_stage, self.J_sk, n_ground), dtype=bool)
+        self.V_sun = np.zeros((self.S, self.K, T_per_stage, self.J_sk), dtype=bool)
         
-        # Ground station visibility: ~10% probability per time step
-        self.V_ground = np.random.random((self.K, self.T, n_ground)) < 0.20
-        
-        # Sun visibility: roughly 60% of orbit (simplified eclipse model)
-        # Assume ~90 minute orbit → ~54 minutes in sun
-        orbit_period = 90 * 60 // self.dt  # ~54 time steps
-        self.V_sun = np.zeros((self.K, self.T), dtype=bool)
-        for k in range(self.K):
-            # Phase offset for each satellite
-            phase = np.random.randint(0, orbit_period)
-            for t in range(self.T):
-                # In sun for 60% of orbit
-                orbit_position = (t + phase) % orbit_period
-                self.V_sun[k, t] = orbit_position < int(0.6 * orbit_period)
+        # Generate slot-dependent visibility (key innovation from paper)
+        for s in range(self.S):
+            for k in range(self.K):
+                for t in range(T_per_stage):
+                    for j in range(self.J_sk):
+                        # Target visibility: depends on orbital slot position
+                        # Higher slot numbers have slightly better visibility (0.05 + j/J_sk * 0.15)
+                        prob_target = 0.05 + (j / self.J_sk) * 0.15
+                        if np.random.random() < prob_target:
+                            # Select one random target visible from this slot
+                            p = np.random.choice(n_targets)
+                            self.V_target[s, k, t, j, p] = True
+                        
+                        # Ground station visibility: ~8% probability, slot-dependent
+                        if np.random.random() < 0.08:
+                            g = np.random.choice(n_ground)
+                            self.V_ground[s, k, t, j, g] = True
+                        
+                        # Sun visibility: ~35% probability (simplified eclipse model)
+                        self.V_sun[s, k, t, j] = np.random.random() < 0.35
     
     def _generate_maneuver_costs(self):
         """
         Generate maneuver costs (delta-v) between orbital slots
-        Simplification: Use simple distance-based heuristic instead of orbital mechanics
+        Paper Section 3.3.2: c^s_{kij} is propellant cost (m/s) to transfer from slot i to j
+        Following all.py: c[(s,k,i,j)] = abs(i - j) * 0.02 (simple but effective)
         """
         np.random.seed(self.instance_id + 1000)
         
-        # Maneuver costs between stages: [S-1, K, J_from, J_to]
-        self.maneuver_costs = np.zeros((self.S - 1, self.K, self.J_sk, self.J_sk))
+        # Maneuver costs for all stages: [S, K, J_from, J_to]
+        # Paper uses c^s_{kij} indexed by stage s
+        self.maneuver_costs = np.zeros((self.S, self.K, self.J_sk, self.J_sk))
         
-        for s in range(self.S - 1):
+        for s in range(self.S):
             for k in range(self.K):
                 for j_from in range(self.J_sk):
                     for j_to in range(self.J_sk):
                         if j_from == j_to:
-                            # No maneuver needed
+                            # No maneuver needed (constraint 10c in paper)
                             self.maneuver_costs[s, k, j_from, j_to] = 0
                         else:
-                            # Cost proportional to orbital slot distance
-                            # Scale by slot spacing (more slots = closer spacing = lower cost)
+                            # Cost proportional to slot distance (matching all.py)
+                            # Paper range: 0.01 to 0.3 km/s per slot
                             slot_distance = abs(j_to - j_from)
-                            base_cost = 50 + 150 * (slot_distance / self.J_sk)
-                            # Add randomness ±20%
-                            variation = np.random.uniform(0.8, 1.2)
-                            self.maneuver_costs[s, k, j_from, j_to] = base_cost * variation
+                            self.maneuver_costs[s, k, j_from, j_to] = slot_distance * 0.02  # m/s
     
     def get_stage_boundaries(self) -> List[int]:
         """Return time step boundaries for each stage"""
