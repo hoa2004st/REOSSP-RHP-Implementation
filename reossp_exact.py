@@ -319,16 +319,12 @@ class REOSSPExactSolver:
         model.battery_tracking_between = pyo.Constraint(model.S, model.K, 
                                                        rule=battery_tracking_between_stages_rule)
         
-        def battery_initial_rule(m, s, k):
-            # Paper Eq (13c): b^{1}_{k1} + B_recon*sum_{i,j} x^{1}_{kij} = B_max
-            #
-            # Battery transition in first stage includes maneuver cost!
-            
-            recon_consumption = sum(m.x[1, k, i, j] for i in m.J for j in m.J) * p.B_recon
-            return m.b[1, k, 1] + recon_consumption == p.B_max
+        def battery_initial_rule(m, k):
+            # Paper Eq (13c): b^{1}_{k1} = B_max - B_recon*sum_j x^{1}_{k,1,j}
+            recon_consumption = sum(m.x[1, k, 1, j] for j in m.J) * p.B_recon
+            return m.b[1, k, 1] == p.B_max - recon_consumption
 
-        model.battery_init = pyo.Constraint(model.S, model.K, 
-                                                    rule=battery_initial_rule)     
+        model.battery_init = pyo.Constraint(model.K, rule=battery_initial_rule)     
         
         def battery_upper_bound_rule(m, s, k, t):
             # Paper Eq (14a): b^s_{kt} + B_charge*h^s_{kt} <= B_max

@@ -48,6 +48,10 @@ class REOSSPRHPSolver:
         self.c_max_remaining = {k: params.c_max for k in range(params.K)}  # Remaining propellant budget per satellite
         self.J_tilde_prev = {k: 0 for k in range(params.K)}  # j_tilde^{s-1}_k: slot at end of previous stage (0-indexed)
         
+        # Track final state of previous stage for initial conditions
+        self.prev_stage_final_data = {k: 0.0 for k in range(params.K)}  # d^{s-1}_{k,T^{s-1}} after dynamics
+        self.prev_stage_final_battery = {k: params.B_max for k in range(params.K)}  # b^{s-1}_{k,T^{s-1}} after dynamics
+        
     def build_stage_model(self, current_stage):
         """
         Build optimization model for stages s to s+L-1 (lookahead window)
@@ -363,10 +367,11 @@ class REOSSPRHPSolver:
                 # First stage: start with empty storage
                 return m.d[l, k, 1] == 0
             else:
-                # Later stages: inherit from previous solution
-                # This will be set dynamically based on previous stage solution
-                # For now, initialize to 0 (will be updated in solve loop)
-                return pyo.Constraint.Skip  # Will use dual variable or parameter
+                # Later stages: inherit from previous stage's final state
+                # d^s_{k1} = d^{s-1}_{k,T^{s-1}} + D_obs*y^{s-1}_{k,T^{s-1},p} - D_comm*q^{s-1}_{k,T^{s-1},g}
+                # This was already computed and stored in self.prev_stage_final_data
+                d_init = self.prev_stage_final_data[k]
+                return m.d[l, k, 1] == d_init
         
         model.data_initial = pyo.Constraint(model.K, rule=data_initial_rule)
         
@@ -464,10 +469,13 @@ class REOSSPRHPSolver:
                 recon_cost = sum(m.x[l, k, j_tilde_prev, j] for j in m.J) * p.B_recon
                 return m.b[l, k, 1] == p.B_max - recon_cost
             else:
-                # Later stages: inherit from previous solution minus maneuver cost
-                # b^s_{k1} = b_init - B_recon*sum_{i,j} x^s_{kij}
-                # This will be handled dynamically in solve loop
-                return pyo.Constraint.Skip
+                # Later stages: inherit from previous stage's final battery minus maneuver cost
+                # b^s_{k1} = b^{s-1}_{k,T^{s-1}} + B_charge*h - B_obs*y - B_comm*q - B_time - B_recon*x^s
+                # The final battery from previous stage was already computed with all dynamics
+                b_init = self.prev_stage_final_battery[k]
+                j_tilde_prev = self.J_tilde_prev[k]  # Slot at end of previous stage
+                recon_cost = sum(m.x[l, k, j_tilde_prev, j] for j in m.J) * p.B_recon
+                return m.b[l, k, 1] == b_init - recon_cost
         
         model.battery_initial = pyo.Constraint(model.K, rule=battery_initial_rule)
 
@@ -644,6 +652,38 @@ class REOSSPRHPSolver:
                         if var.value is not None and var.value > 0.5:
                             prop_cost = p.maneuver_costs[s, k_idx, j_tilde_prev, j_idx]
                             self.c_max_remaining[k_idx] -= prop_cost
+                
+                # Save final state of stage s for next stage's initial conditions
+                # This is critical for proper state continuity between stages
+                T_per_stage = p.T // p.S
+                for k_idx in model.K:
+                    k = k_idx  # Convert to 0-indexed for storage
+                    t_last = T_per_stage
+                    
+                    # Extract final state values
+                    d_final = pyo.value(model.d[s, k_idx, t_last])
+                    b_final = pyo.value(model.b[s, k_idx, t_last])
+                    
+                    # Apply dynamics for last timestep to get state entering next stage
+                    # d^{s+1}_{k1} = d^s_{k,T^s} + D_obs*sum_p(y^s_{k,T^s,p}) - D_comm*sum_g(q^s_{k,T^s,g})
+                    data_gen = sum(pyo.value(model.y[s, k_idx, t_last, p_idx]) 
+                                   for p_idx in model.P) * p.D_obs
+                    data_down = sum(pyo.value(model.q[s, k_idx, t_last, g_idx]) 
+                                    for g_idx in model.G) * p.D_comm
+                    
+                    # b^{s+1}_{k1} = b^s_{k,T^s} + B_charge*h - B_obs*sum_p(y) - B_comm*sum_g(q) - B_time
+                    # (maneuver cost B_recon will be subtracted in battery_initial_rule)
+                    charge = pyo.value(model.h[s, k_idx, t_last]) * p.B_charge
+                    obs_consumption = sum(pyo.value(model.y[s, k_idx, t_last, p_idx]) 
+                                          for p_idx in model.P) * p.B_obs
+                    comm_consumption = sum(pyo.value(model.q[s, k_idx, t_last, g_idx]) 
+                                           for g_idx in model.G) * p.B_comm
+                    idle_consumption = p.B_time
+                    
+                    # Store final state after dynamics (ready for next stage)
+                    self.prev_stage_final_data[k] = d_final + data_gen - data_down
+                    self.prev_stage_final_battery[k] = (b_final + charge - obs_consumption 
+                                                         - comm_consumption - idle_consumption)
                 
                 # Stage summary
                 stage_obs = len([o for o in self.observation_plan if o[0] == s])

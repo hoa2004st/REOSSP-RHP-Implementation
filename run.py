@@ -17,7 +17,7 @@ print("TESTING ALL 3 METHODS (EOSSP, REOSSP-Exact, REOSSP-RHP)")
 print("="*80)
 
 # IMPORTANT: J_sk must be >= K (need enough slots for all satellites)
-S, K, J_sk, T = 8, 5, 20, 36*24*14
+S, K, J_sk, T = 8, 5, 20, 36*24*2
 time_limit_minutes = 60
 
 params = InstanceParameters(instance_id=999, S=S, K=K, J_sk=J_sk, T=T)
