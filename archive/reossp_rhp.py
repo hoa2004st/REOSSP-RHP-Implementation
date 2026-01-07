@@ -212,32 +212,6 @@ class REOSSPRHPSolver:
         model.propellant_budget = pyo.Constraint(model.K, rule=propellant_budget_rule)
         
         # ---------------------------------------------------------------------
-        # Slot Availability Constraints - Globally Unavailable Slots
-        # Prevent satellites from occupying slots that are unavailable for all satellites
-        # (e.g., no-fly zones, space debris, etc.)
-        # ---------------------------------------------------------------------
-        
-        def unavailable_slot_rule(m, l, k, j):
-            # If slot j is unavailable in stage l, no satellite can move to it
-            if l not in m.S_window:
-                return pyo.Constraint.Skip
-            
-            if not p.unavailable_slots[l, j]:  # Slot is available
-                return pyo.Constraint.Skip
-            
-            # Slot is unavailable - no satellite can occupy it
-            if l == s:
-                # Current stage: coming from j_tilde_prev
-                j_tilde_prev = self.J_tilde_prev[k]
-                return m.x[l, k, j_tilde_prev, j] == 0
-            else:
-                # Later stages in window: cannot move to this slot from any previous slot
-                return sum(m.x[l, k, i, j] for i in m.J) == 0
-        
-        model.unavailable_slot = pyo.Constraint(model.S_window, model.K, model.J, 
-                                               rule=unavailable_slot_rule)
-        
-        # ---------------------------------------------------------------------
         # Visibility Constraints - Paper Eq (19a-19d)
         # Actions depend on slot-dependent visibility windows
         # Similar to exact formulation but only for lookahead window

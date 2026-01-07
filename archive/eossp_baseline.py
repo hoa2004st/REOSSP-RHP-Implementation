@@ -36,12 +36,6 @@ class EOSSPSolver:
         p = self.params
         model = pyo.ConcreteModel(name="EOSSP_Baseline")
         
-        # Validate that slot 0 (fixed slot for all satellites) is always available
-        # EOSSP satellites stay at slot 0, so it must not be marked as unavailable
-        if np.any(p.unavailable_slots[:, 0]):
-            raise ValueError("EOSSP baseline requires slot 0 to be available in all stages, "
-                           "but it is marked as unavailable in some stages.")
-        
         # Convert 4D visibility [S, K, T_per_stage, J, targets] to global time indexing
         # For EOSSP: satellites stay at slot j=0 throughout mission
         T_per_stage = p.T // p.S

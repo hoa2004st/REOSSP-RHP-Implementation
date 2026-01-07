@@ -17,12 +17,12 @@ print("TESTING ALL 3 METHODS (EOSSP, REOSSP-Exact, REOSSP-RHP)")
 print("="*80)
 
 # IMPORTANT: J_sk must be >= K (need enough slots for all satellites)
-SK_pairs = [(8, 5), (8, 6), (9, 5), (9, 6), (12, 5), (12, 6)]
+SK_pairs = [(9, 6), (12, 5), (12, 6)]
 J_sk, T = 20, 36*24*2
 time_limit_minutes = 60
-unavailable_slot_probability = 0.2
+
 # Initialize CSV file
-csv_filename = f"results/results_{unavailable_slot_probability}.csv"
+csv_filename = "results.csv"
 file_exists = os.path.isfile(csv_filename)
 
 # Iterate through all SK_pairs
@@ -31,7 +31,7 @@ for pair_idx, (S, K) in enumerate(SK_pairs, 1):
     print(f"INSTANCE {pair_idx}/{len(SK_pairs)}: S={S}, K={K}")
     print(f"="*80)
     
-    params = InstanceParameters(instance_id=pair_idx, S=S, K=K, J_sk=J_sk, T=T, unavailable_slot_probability=unavailable_slot_probability)
+    params = InstanceParameters(instance_id=pair_idx, S=S, K=K, J_sk=J_sk, T=T)
 
     print(f"\nProblem size:")
     print(f"  Satellites: {params.K}")

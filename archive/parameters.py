@@ -59,12 +59,6 @@ class InstanceParameters:
     # Paper Section 3.3.2: c^s_{kij} is propellant cost to move from slot i to slot j
     maneuver_costs: np.ndarray = None  # [S, K, J_sk, J_sk] delta-v costs
     
-    # Globally unavailable slots (no-fly zones, space debris, etc.)
-    # Boolean array indicating which slots are unavailable for ALL satellites
-    # True = slot is unavailable, False = slot is available
-    unavailable_slots: np.ndarray = None  # [S, J_sk] - per stage, per slot
-    unavailable_slot_probability: float = 0.05  # Probability that a slot is unavailable (except slot 0)
-    
     def __post_init__(self):
         """Generate visibility matrices and maneuver costs"""
         # Calculate T if not provided (14 days by default)
@@ -78,8 +72,6 @@ class InstanceParameters:
                 self._generate_synthetic_visibility_matrices()
         if self.maneuver_costs is None:
             self._generate_maneuver_costs()
-        if self.unavailable_slots is None:
-            self._generate_unavailable_slots()
     
     def _generate_realistic_visibility_matrices(self):
         """
@@ -118,6 +110,7 @@ class InstanceParameters:
     def _generate_synthetic_visibility_matrices(self):
         """
         Generate synthetic SLOT-DEPENDENT visibility matrices (4D as in paper)
+        Key difference from 3D: Visibility depends on orbital slot position
         Paper: V^s_{ktjp} indicates if target p is visible from slot j at time t in stage s
         """
         np.random.seed(self.instance_id)
@@ -179,26 +172,6 @@ class InstanceParameters:
                             # Paper range: 0.01 to 0.3 km/s per slot
                             slot_distance = abs(j_to - j_from)
                             self.maneuver_costs[s, k, j_from, j_to] = slot_distance * 0.02  # m/s
-    
-    def _generate_unavailable_slots(self):
-        """
-        Generate globally unavailable slots (no-fly zones, space debris, etc.)
-        Some slots may be unavailable for ALL satellites in certain stages
-        Slot 0 (initial slot) is always kept available
-        """
-        np.random.seed(self.instance_id + 2000)
-        
-        # Initialize all slots as available
-        self.unavailable_slots = np.zeros((self.S, self.J_sk), dtype=bool)
-        
-        # Randomly mark some slots as unavailable
-        # Slot 0 is always available (initial slot), so start from slot 1
-        for s in range(self.S):
-            for j in range(1, self.J_sk):  # Start from 1 to keep slot 0 available
-                if np.random.random() < self.unavailable_slot_probability:
-                    self.unavailable_slots[s, j] = True
-        
-        print(f"  Generated unavailable slots: {np.sum(self.unavailable_slots)} out of {self.S * self.J_sk} total ({np.sum(self.unavailable_slots) / (self.S * self.J_sk) * 100:.1f}%)")
     
     def get_stage_boundaries(self) -> List[int]:
         """Return time step boundaries for each stage"""

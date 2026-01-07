@@ -160,30 +160,6 @@ class REOSSPExactSolver:
         model.propellant_budget = pyo.Constraint(model.K, rule=propellant_budget_rule)
         
         # ---------------------------------------------------------------------
-        # Slot Availability Constraints - Globally Unavailable Slots
-        # Prevent satellites from occupying slots that are unavailable for all satellites
-        # (e.g., no-fly zones, space debris, etc.)
-        # ---------------------------------------------------------------------
-        
-        def unavailable_slot_rule(m, s, k, j):
-            # If slot j is unavailable in stage s, no satellite can move to it
-            # For stage 1: x^1_{k,1,j} = 0 if slot j is unavailable
-            # For later stages: sum_{i} x^s_{k,i,j} = 0 if slot j is unavailable
-            if not p.unavailable_slots[s-1, j-1]:  # Slot is available
-                return pyo.Constraint.Skip
-            
-            # Slot is unavailable - no satellite can occupy it
-            if s == 1:
-                # First stage: coming from initial slot 1
-                return m.x[s, k, 1, j] == 0
-            else:
-                # Later stages: cannot move to this slot from any previous slot
-                return sum(m.x[s, k, i, j] for i in m.J) == 0
-        
-        model.unavailable_slot = pyo.Constraint(model.S, model.K, model.J, 
-                                               rule=unavailable_slot_rule)
-        
-        # ---------------------------------------------------------------------
         # Visibility Constraints - Paper Eq (11a-11d)
         # Actions depend on slot-dependent visibility windows
         # ---------------------------------------------------------------------
