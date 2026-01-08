@@ -30,7 +30,6 @@ env/
 .ipynb_checkpoints
 
 # Results and output files
-*.csv
 *.pkl
 *.pickle
 all_results_*.pkl
