@@ -10,14 +10,18 @@ os.makedirs('visualizations', exist_ok=True)
 df_0_0 = pd.read_csv('results/results_0.0.csv')
 df_0_1 = pd.read_csv('results/results_0.1.csv')
 df_0_2 = pd.read_csv('results/results_0.2.csv')
+df_0_5 = pd.read_csv('results/results_0.5.csv')
+df_1_0 = pd.read_csv('results/results_1.0.csv')
 
 # Add unavailable_probability column to each dataframe
 df_0_0['unavailable_prob'] = 0.0
 df_0_1['unavailable_prob'] = 0.1
 df_0_2['unavailable_prob'] = 0.2
+df_0_5['unavailable_prob'] = 0.5
+df_1_0['unavailable_prob'] = 1.0
 
 # Combine all dataframes
-df_all = pd.concat([df_0_0, df_0_1, df_0_2], ignore_index=True)
+df_all = pd.concat([df_0_0, df_0_1, df_0_2, df_0_5, df_1_0], ignore_index=True)
 
 # Calculate averages for each method and unavailable probability
 metrics = {
@@ -26,20 +30,20 @@ metrics = {
         'REOSSP Exact': 'reossp_exact_objective',
         'REOSSP RHP': 'reossp_rhp_objective'
     },
+        'Runtime (minutes)': {
+        'EOSSP Baseline': 'eossp_runtime_minutes',
+        'REOSSP Exact': 'reossp_exact_runtime_minutes',
+        'REOSSP RHP': 'reossp_rhp_runtime_minutes'
+    },
     'Figure of Merit': {
         'EOSSP Baseline': 'eossp_figure_of_merit',
         'REOSSP Exact': 'reossp_exact_figure_of_merit',
         'REOSSP RHP': 'reossp_rhp_figure_of_merit'
-    },
-    'Runtime (minutes)': {
-        'EOSSP Baseline': 'eossp_runtime_minutes',
-        'REOSSP Exact': 'reossp_exact_runtime_minutes',
-        'REOSSP RHP': 'reossp_rhp_runtime_minutes'
     }
 }
 
 # Prepare data for plotting
-unavailable_probs = [0.0, 0.1, 0.2]
+unavailable_probs = [0.0, 0.1, 0.2, 0.5, 1.0]
 methods = ['EOSSP Baseline', 'REOSSP Exact', 'REOSSP RHP']
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
 
@@ -64,35 +68,30 @@ for idx, (metric_name, method_cols) in enumerate(metrics.items()):
     # Convert to numpy array for easier manipulation
     data = np.array(data)
     
-    # Set up bar positions
-    x = np.arange(len(unavailable_probs))
-    width = 0.25
-    
-    # Create bars for each method
+    # Create line plot for each method
     for i, method in enumerate(methods):
-        offset = (i - 1) * width
-        bars = ax.bar(x + offset, data[:, i], width, label=method, color=colors[i], alpha=0.8, edgecolor='black', linewidth=0.5)
+        ax.plot(unavailable_probs, data[:, i], marker='o', linewidth=2.5, 
+                markersize=8, label=method, color=colors[i], alpha=0.8)
         
-        # Add value labels on top of bars
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                   f'{height:.1f}',
-                   ha='center', va='bottom', fontsize=8)
+        # Add value labels on each point
+        for j, prob in enumerate(unavailable_probs):
+            ax.text(prob, data[j, i], f'{data[j, i]:.1f}',
+                   ha='center', va='bottom', fontsize=8, fontweight='bold')
     
     # Customize subplot
     ax.set_xlabel('Unavailable Probability', fontsize=11, fontweight='bold')
     ax.set_ylabel(metric_name, fontsize=11, fontweight='bold')
     ax.set_title(metric_name, fontsize=12, fontweight='bold')
-    ax.set_xticks(x)
+    ax.set_xticks(unavailable_probs)
     ax.set_xticklabels([f'{p:.1f}' for p in unavailable_probs])
     ax.legend(fontsize=9, loc='best')
-    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_ylim(bottom=0)  # Y-axis starts at 0
 
 # Adjust layout and save
 plt.tight_layout()
-plt.savefig('visualizations/method_comparison_bar_charts.png', dpi=300, bbox_inches='tight')
-print("Bar charts saved to visualizations/method_comparison_bar_charts.png")
+plt.savefig('visualizations/method_comparison_line_charts.png', dpi=300, bbox_inches='tight')
+print("Line charts saved to visualizations/method_comparison_line_charts.png")
 
 # Display the plot
 plt.show()

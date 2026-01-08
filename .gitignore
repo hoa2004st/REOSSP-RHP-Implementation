@@ -33,7 +33,6 @@ env/
 *.csv
 *.pkl
 *.pickle
-results_*.csv
 all_results_*.pkl
 intermediate_results.pkl
 comparison_report*.txt
