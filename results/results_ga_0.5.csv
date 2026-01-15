@@ -1,0 +1,3 @@
+timestamp,instance_id,S,K,J_sk,T,observations_possible,downlinks_possible,pop_size,n_gen,ga_reossp_status,ga_reossp_objective,ga_reossp_data_downlinked_gb,ga_reossp_runtime_minutes,ga_reossp_observations,ga_reossp_downlinks,ga_reossp_final_fitness
+20260113_140255,1,8,5,20,200,2392,1605,50,100,completed,-51362998819.00004,27200,4.118918748696645,4037,272,-51362998819.00004
+20260113_140751,2,8,6,20,200,2968,1934,50,100,completed,-65267631964.00005,30700,4.9332602222760515,5022,307,-65267631964.00005
