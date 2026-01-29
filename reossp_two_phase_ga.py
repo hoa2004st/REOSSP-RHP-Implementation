@@ -329,22 +329,37 @@ class REOSSPTwoPhaseGA:
     
     def crossover(self, ind1: List, ind2: List) -> Tuple[List, List]:
         """
-        Custom crossover: swap entire satellite trajectories
-        Preserves per-satellite propellant budget constraints
-        
-        Args:
-            ind1, ind2: Parent individuals
-        
-        Returns:
-            Two offspring individuals
+        Stage-level single-point crossover with propellant feasibility check
+        Split all satellites at same stage boundary
+        If offspring violate propellant budget, reject crossover
         """
         K = len(ind1)
+        S = len(ind1[0])
         
-        # Randomly decide which satellites to swap
+        # Save original individuals in case we need to reject crossover
+        ind1_original = [row[:] for row in ind1]
+        ind2_original = [row[:] for row in ind2]
+        
+        # Random split point between stages
+        split_point = random.randint(1, S - 1)
+        
+        # Swap all satellites' trajectories after split point
         for k in range(K):
-            if random.random() < 0.5:
-                # Swap entire trajectory for satellite k
-                ind1[k], ind2[k] = ind2[k][:], ind1[k][:]
+            ind1[k][split_point:], ind2[k][split_point:] = \
+                ind2[k][split_point:], ind1[k][split_point:]
+        
+        # Check if offspring are propellant-feasible
+        traj1 = np.array(ind1, dtype=int)
+        traj2 = np.array(ind2, dtype=int)
+        
+        feasible1 = self.is_propellant_feasible(traj1)
+        feasible2 = self.is_propellant_feasible(traj2)
+        
+        # If either offspring is infeasible, reject crossover (restore parents)
+        if not feasible1 or not feasible2:
+            for k in range(K):
+                ind1[k] = ind1_original[k]
+                ind2[k] = ind2_original[k]
         
         return ind1, ind2
     

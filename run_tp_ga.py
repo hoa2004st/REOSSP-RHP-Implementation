@@ -17,7 +17,7 @@ print("="*80)
 # Problem parameters
 SK_pairs = [(8, 5), (8, 6), (9, 5), (9, 6), (12, 5), (12, 6)]
 # unavailable_probs = [0.0, 0.1, 0.2, 0.5, 1.0]
-SK_pairs = [(8, 6), (9, 5), (9, 6), (12, 5), (12, 6)]
+SK_pairs = [(8, 5)]
 unavailable_probs = [0.1]
 J_sk, T = 20, 36*24*2
 
@@ -26,7 +26,7 @@ pop_size = 50
 n_generations = 30
 
 # Initialize CSV file
-csv_filename = "results/results_tp_ga.csv"
+csv_filename = "results/results_tp_ga_v2.csv"
 file_exists = os.path.isfile(csv_filename)
 
 # Counter for instance ID

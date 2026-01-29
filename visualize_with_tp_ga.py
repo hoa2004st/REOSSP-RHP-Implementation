@@ -24,6 +24,7 @@ df_0_0 = pd.read_csv('results/results_0.0.csv')
 df_0_1 = pd.read_csv('results/results_0.1.csv')
 df_0_2 = pd.read_csv('results/results_0.2.csv')
 df_0_5 = pd.read_csv('results/results_0.5.csv')
+df_0_8 = pd.read_csv('results/results_0.8.csv')
 df_1_0 = pd.read_csv('results/results_1.0.csv')
 
 # Add unavailable_probability column to each dataframe
@@ -31,11 +32,11 @@ df_0_0['unavailable_prob'] = 0.0
 df_0_1['unavailable_prob'] = 0.1
 df_0_2['unavailable_prob'] = 0.2
 df_0_5['unavailable_prob'] = 0.5
+df_0_8['unavailable_prob'] = 0.8
 df_1_0['unavailable_prob'] = 1.0
 
 # Combine all dataframes
-df_all = pd.concat([df_0_0, df_0_1, df_0_2, df_0_5, df_1_0], ignore_index=True)
-
+df_all = pd.concat([df_0_0, df_0_1, df_0_2, df_0_5, df_0_8, df_1_0], ignore_index=True)
 # Read Two-Phase GA results
 try:
     df_tp_ga = pd.read_csv('results/results_tp_ga.csv')

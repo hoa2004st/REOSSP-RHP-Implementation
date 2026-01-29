@@ -11,6 +11,7 @@ df_0_0 = pd.read_csv('results/results_0.0.csv')
 df_0_1 = pd.read_csv('results/results_0.1.csv')
 df_0_2 = pd.read_csv('results/results_0.2.csv')
 df_0_5 = pd.read_csv('results/results_0.5.csv')
+df_0_8 = pd.read_csv('results/results_0.8.csv')
 df_1_0 = pd.read_csv('results/results_1.0.csv')
 
 # Add unavailable_probability column to each dataframe
@@ -18,10 +19,11 @@ df_0_0['unavailable_prob'] = 0.0
 df_0_1['unavailable_prob'] = 0.1
 df_0_2['unavailable_prob'] = 0.2
 df_0_5['unavailable_prob'] = 0.5
+df_0_8['unavailable_prob'] = 0.8
 df_1_0['unavailable_prob'] = 1.0
 
 # Combine all dataframes
-df_all = pd.concat([df_0_0, df_0_1, df_0_2, df_0_5, df_1_0], ignore_index=True)
+df_all = pd.concat([df_0_0, df_0_1, df_0_2, df_0_5, df_0_8, df_1_0], ignore_index=True)
 
 # Calculate averages for each method and unavailable probability
 metrics = {
@@ -43,7 +45,7 @@ metrics = {
 }
 
 # Prepare data for plotting
-unavailable_probs = [0.0, 0.1, 0.2, 0.5, 1.0]
+unavailable_probs = [0.0, 0.1, 0.2, 0.5, 0.8, 1.0]
 methods = ['EOSSP Baseline', 'REOSSP Exact', 'REOSSP RHP']
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
 

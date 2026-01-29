@@ -20,7 +20,7 @@ print("="*80)
 SK_pairs = [(8, 5), (8, 6), (9, 5), (9, 6), (12, 5), (12, 6)]
 J_sk, T = 20, 36*24*2
 time_limit_minutes = 60
-unavailable_slot_probability = 1.0
+unavailable_slot_probability = 0.8
 # Initialize CSV file
 csv_filename = f"results/results_{unavailable_slot_probability}.csv"
 file_exists = os.path.isfile(csv_filename)
