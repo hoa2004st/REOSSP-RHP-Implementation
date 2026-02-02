@@ -159,7 +159,7 @@ class InstanceParameters:
         """
         Generate maneuver costs (delta-v) between orbital slots
         Paper Section 3.3.2: c^s_{kij} is propellant cost (m/s) to transfer from slot i to j
-        Following all.py: c[(s,k,i,j)] = abs(i - j) * 0.02 (simple but effective)
+        Paper: c[(s,k,i,j)] = abs(i - j) * 0.02 (simple but effective)
         """
         np.random.seed(self.instance_id + 1000)
         
@@ -175,7 +175,7 @@ class InstanceParameters:
                             # No maneuver needed (constraint 10c in paper)
                             self.maneuver_costs[s, k, j_from, j_to] = 0
                         else:
-                            # Cost proportional to slot distance (matching all.py)
+                            # Cost proportional to slot distance
                             # Paper range: 0.01 to 0.3 km/s per slot
                             slot_distance = abs(j_to - j_from)
                             self.maneuver_costs[s, k, j_from, j_to] = slot_distance * 0.02  # m/s

@@ -205,20 +205,6 @@ class REOSSPTwoPhaseGA:
         self.mut_prob = 0.2  # Mutation probability
         self.tournament_size = 3
         
-        # Adaptive Operator Selection
-        self.crossover_strategies = ['single_point', 'two_point', 'uniform', 'satellite_swap']
-        self.mutation_strategies = ['single_gene', 'stage_shuffle', 'satellite_shift', 
-                                   'segment_scramble', 'adaptive']
-        
-        self.cx_rewards = {s: 1.0 for s in self.crossover_strategies}
-        self.mut_rewards = {s: 1.0 for s in self.mutation_strategies}
-        self.cx_usage = {s: 0 for s in self.crossover_strategies}
-        self.mut_usage = {s: 0 for s in self.mutation_strategies}
-        
-        # Track last used operators (for reward updates)
-        self.last_cx_strategy = None
-        self.last_mut_strategy = None
-        
         # Statistics
         self.best_individual = None
         self.best_fitness = 0
@@ -226,27 +212,6 @@ class REOSSPTwoPhaseGA:
         
         # Initialize DEAP
         self._setup_deap()
-    
-    def _select_crossover_strategy(self) -> str:
-        """Select crossover strategy using probability matching (AOS)"""
-        total = sum(self.cx_rewards.values())
-        probs = [self.cx_rewards[s]/total for s in self.crossover_strategies]
-        return random.choices(self.crossover_strategies, weights=probs)[0]
-    
-    def _select_mutation_strategy(self) -> str:
-        """Select mutation strategy using probability matching (AOS)"""
-        total = sum(self.mut_rewards.values())
-        probs = [self.mut_rewards[s]/total for s in self.mutation_strategies]
-        return random.choices(self.mutation_strategies, weights=probs)[0]
-    
-    def _update_operator_reward(self, operator_type: str, strategy: str, fitness_improvement: float):
-        """Update reward based on fitness improvement"""
-        if operator_type == 'crossover':
-            self.cx_rewards[strategy] = self.cx_rewards[strategy] * 0.95 + max(0, fitness_improvement) * 0.05
-            self.cx_usage[strategy] += 1
-        elif operator_type == 'mutation':
-            self.mut_rewards[strategy] = self.mut_rewards[strategy] * 0.95 + max(0, fitness_improvement) * 0.05
-            self.mut_usage[strategy] += 1
     
     def _setup_deap(self):
         """Initialize DEAP framework"""
@@ -364,8 +329,8 @@ class REOSSPTwoPhaseGA:
     
     def crossover(self, ind1: List, ind2: List) -> Tuple[List, List]:
         """
-        Enhanced multi-strategy crossover with adaptive operator selection
-        Uses probability matching to select successful strategies more often
+        Enhanced multi-strategy crossover with propellant feasibility check
+        Randomly selects from multiple crossover strategies for diversity
         
         Args:
             ind1, ind2: Parent individuals
@@ -380,9 +345,8 @@ class REOSSPTwoPhaseGA:
         ind1_original = [row[:] for row in ind1]
         ind2_original = [row[:] for row in ind2]
         
-        # Select crossover strategy using adaptive operator selection
-        strategy = self._select_crossover_strategy()
-        self.last_cx_strategy = strategy
+        # Randomly select crossover strategy
+        strategy = random.choice(['single_point', 'two_point', 'uniform', 'satellite_swap'])
         
         if strategy == 'single_point':
             # Single-point crossover at random stage
@@ -430,8 +394,8 @@ class REOSSPTwoPhaseGA:
     
     def mutate(self, individual: List) -> Tuple[List,]:
         """
-        Enhanced multi-strategy mutation with adaptive operator selection
-        Uses probability matching to select successful strategies more often
+        Enhanced multi-strategy mutation for better exploration
+        Randomly selects from multiple mutation operators
         
         Args:
             individual: Individual to mutate
@@ -445,9 +409,8 @@ class REOSSPTwoPhaseGA:
         # Save original for rollback if needed
         individual_original = [row[:] for row in individual]
         
-        # Select mutation strategy using adaptive operator selection
-        strategy = self._select_mutation_strategy()
-        self.last_mut_strategy = strategy
+        # Randomly select mutation strategy
+        strategy = random.choice(['single_gene', 'stage_shuffle', 'satellite_shift', 'segment_scramble', 'adaptive'])
         
         max_attempts = 10
         
@@ -515,6 +478,7 @@ class REOSSPTwoPhaseGA:
         for k in range(K):
             individual[k] = individual_original[k]
         return (individual,)
+
     
     def initialize_population(self) -> List:
         """
@@ -590,35 +554,22 @@ class REOSSPTwoPhaseGA:
         if verbose:
             print(f"\nStarting evolution for {n_generations} generations...")
         
-        prev_best_fitness = 0
-        
         for gen in range(n_generations):
             # Select next generation
             offspring = self.toolbox.select(population, len(population))
             offspring = list(map(self.toolbox.clone, offspring))
             
-            # Track parent fitness for reward calculation
-            parent_fitness = {id(ind): ind.fitness.values[0] if ind.fitness.valid else 0 
-                            for ind in offspring}
-            
-            # Apply crossover and track operators used
-            cx_operators_used = {}
-            for i, (child1, child2) in enumerate(zip(offspring[::2], offspring[1::2])):
+            # Apply crossover
+            for child1, child2 in zip(offspring[::2], offspring[1::2]):
                 if random.random() < self.cx_prob:
-                    parent_avg_fit = (parent_fitness[id(child1)] + parent_fitness[id(child2)]) / 2
                     self.toolbox.mate(child1, child2)
-                    cx_operators_used[id(child1)] = (self.last_cx_strategy, parent_avg_fit)
-                    cx_operators_used[id(child2)] = (self.last_cx_strategy, parent_avg_fit)
                     del child1.fitness.values
                     del child2.fitness.values
             
-            # Apply mutation and track operators used
-            mut_operators_used = {}
+            # Apply mutation
             for mutant in offspring:
                 if random.random() < self.mut_prob:
-                    parent_fit = parent_fitness.get(id(mutant), 0)
                     self.toolbox.mutate(mutant)
-                    mut_operators_used[id(mutant)] = (self.last_mut_strategy, parent_fit)
                     del mutant.fitness.values
             
             # Evaluate individuals with invalid fitness
@@ -626,22 +577,6 @@ class REOSSPTwoPhaseGA:
             fitnesses = map(self.toolbox.evaluate, invalid_ind)
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness.values = fit
-            
-            # Update operator rewards based on fitness improvements
-            for ind in offspring:
-                new_fitness = ind.fitness.values[0]
-                
-                # Update crossover rewards
-                if id(ind) in cx_operators_used:
-                    strategy, parent_fit = cx_operators_used[id(ind)]
-                    improvement = new_fitness - parent_fit
-                    self._update_operator_reward('crossover', strategy, improvement)
-                
-                # Update mutation rewards
-                if id(ind) in mut_operators_used:
-                    strategy, parent_fit = mut_operators_used[id(ind)]
-                    improvement = new_fitness - parent_fit
-                    self._update_operator_reward('mutation', strategy, improvement)
             
             # Replace population
             population[:] = offspring
@@ -654,8 +589,6 @@ class REOSSPTwoPhaseGA:
             
             if verbose and (gen % 10 == 0 or gen == n_generations - 1):
                 print(f"Gen {gen:3d}: Best={best_fit:8.2f}, Avg={avg_fit:8.2f}")
-            
-            prev_best_fitness = best_fit
         
         runtime = time.time() - start_time
         
@@ -670,24 +603,6 @@ class REOSSPTwoPhaseGA:
         # Calculate propellant used
         propellant_used = self._calculate_propellant(best_trajectory)
         
-        # Print operator statistics
-        if verbose:
-            print("\n" + "="*60)
-            print("ADAPTIVE OPERATOR SELECTION STATISTICS")
-            print("="*60)
-            print("\nCrossover Strategy Performance:")
-            for strategy in self.crossover_strategies:
-                usage = self.cx_usage[strategy]
-                reward = self.cx_rewards[strategy]
-                print(f"  {strategy:20s}: Used={usage:4d}, Reward={reward:8.2f}")
-            
-            print("\nMutation Strategy Performance:")
-            for strategy in self.mutation_strategies:
-                usage = self.mut_usage[strategy]
-                reward = self.mut_rewards[strategy]
-                print(f"  {strategy:20s}: Used={usage:4d}, Reward={reward:8.2f}")
-            print("="*60)
-        
         results = {
             'status': 'completed',
             'objective': best_schedule['objective'],
@@ -699,11 +614,7 @@ class REOSSPTwoPhaseGA:
             'best_trajectory': best_trajectory,
             'fitness_history': self.fitness_history,
             'final_population_size': len(population),
-            'generations_completed': n_generations,
-            'crossover_usage': self.cx_usage.copy(),
-            'crossover_rewards': self.cx_rewards.copy(),
-            'mutation_usage': self.mut_usage.copy(),
-            'mutation_rewards': self.mut_rewards.copy()
+            'generations_completed': n_generations
         }
         
         return results

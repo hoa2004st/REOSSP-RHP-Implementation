@@ -54,15 +54,11 @@ metrics = {
     'Runtime': {
         'ylabel': 'Runtime (minutes)',
         'columns': ['eossp_runtime_minutes', 'reossp_exact_runtime_minutes', 'reossp_rhp_runtime_minutes', 'tp_ga_runtime_minutes', 'tp_ga_runtime_minutes']
-    },
-    'Figure of Merit': {
-        'ylabel': 'Figure of Merit (Obj/Runtime)',
-        'columns': ['eossp_figure_of_merit', 'reossp_exact_figure_of_merit', 'reossp_rhp_figure_of_merit', 'tp_ga_figure_of_merit', 'tp_ga_figure_of_merit']
     }
 }
 
 # Create figure with subplots
-fig, axes = plt.subplots(1, 3, figsize=(22, 7))
+fig, axes = plt.subplots(1, 2, figsize=(16, 7))
 fig.suptitle('Method Comparison at Unavailable Probability = 0.1 (v1 vs v2)', fontsize=18, fontweight='bold')
 
 # Flatten axes for easier iteration

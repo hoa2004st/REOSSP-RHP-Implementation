@@ -36,11 +36,6 @@ metrics = {
         'EOSSP Baseline': 'eossp_runtime_minutes',
         'REOSSP Exact': 'reossp_exact_runtime_minutes',
         'REOSSP RHP': 'reossp_rhp_runtime_minutes'
-    },
-    'Figure of Merit': {
-        'EOSSP Baseline': 'eossp_figure_of_merit',
-        'REOSSP Exact': 'reossp_exact_figure_of_merit',
-        'REOSSP RHP': 'reossp_rhp_figure_of_merit'
     }
 }
 
@@ -49,13 +44,8 @@ unavailable_probs = [0.0, 0.1, 0.2, 0.5, 0.8, 1.0]
 methods = ['EOSSP Baseline', 'REOSSP Exact', 'REOSSP RHP']
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
 
-# Create figure with 3 subplots
-fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-fig.suptitle('Comparison of Methods Across Different Unavailable Probability Settings', fontsize=16, fontweight='bold')
-
-for idx, (metric_name, method_cols) in enumerate(metrics.items()):
-    ax = axes[idx]
-    
+# Create figure with 2 subplots
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     # Calculate averages for each method and probability
     data = []
     for prob in unavailable_probs:

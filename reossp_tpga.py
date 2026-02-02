@@ -205,20 +205,6 @@ class REOSSPTwoPhaseGA:
         self.mut_prob = 0.2  # Mutation probability
         self.tournament_size = 3
         
-        # Adaptive Operator Selection
-        self.crossover_strategies = ['single_point', 'two_point', 'uniform', 'satellite_swap']
-        self.mutation_strategies = ['single_gene', 'stage_shuffle', 'satellite_shift', 
-                                   'segment_scramble', 'adaptive']
-        
-        self.cx_rewards = {s: 1.0 for s in self.crossover_strategies}
-        self.mut_rewards = {s: 1.0 for s in self.mutation_strategies}
-        self.cx_usage = {s: 0 for s in self.crossover_strategies}
-        self.mut_usage = {s: 0 for s in self.mutation_strategies}
-        
-        # Track last used operators (for reward updates)
-        self.last_cx_strategy = None
-        self.last_mut_strategy = None
-        
         # Statistics
         self.best_individual = None
         self.best_fitness = 0
@@ -226,27 +212,6 @@ class REOSSPTwoPhaseGA:
         
         # Initialize DEAP
         self._setup_deap()
-    
-    def _select_crossover_strategy(self) -> str:
-        """Select crossover strategy using probability matching (AOS)"""
-        total = sum(self.cx_rewards.values())
-        probs = [self.cx_rewards[s]/total for s in self.crossover_strategies]
-        return random.choices(self.crossover_strategies, weights=probs)[0]
-    
-    def _select_mutation_strategy(self) -> str:
-        """Select mutation strategy using probability matching (AOS)"""
-        total = sum(self.mut_rewards.values())
-        probs = [self.mut_rewards[s]/total for s in self.mutation_strategies]
-        return random.choices(self.mutation_strategies, weights=probs)[0]
-    
-    def _update_operator_reward(self, operator_type: str, strategy: str, fitness_improvement: float):
-        """Update reward based on fitness improvement"""
-        if operator_type == 'crossover':
-            self.cx_rewards[strategy] = self.cx_rewards[strategy] * 0.95 + max(0, fitness_improvement) * 0.05
-            self.cx_usage[strategy] += 1
-        elif operator_type == 'mutation':
-            self.mut_rewards[strategy] = self.mut_rewards[strategy] * 0.95 + max(0, fitness_improvement) * 0.05
-            self.mut_usage[strategy] += 1
     
     def _setup_deap(self):
         """Initialize DEAP framework"""
@@ -364,8 +329,8 @@ class REOSSPTwoPhaseGA:
     
     def crossover(self, ind1: List, ind2: List) -> Tuple[List, List]:
         """
-        Enhanced multi-strategy crossover with adaptive operator selection
-        Uses probability matching to select successful strategies more often
+        Custom crossover: swap entire satellite trajectories
+        Preserves per-satellite propellant budget constraints
         
         Args:
             ind1, ind2: Parent individuals
@@ -374,64 +339,19 @@ class REOSSPTwoPhaseGA:
             Two offspring individuals
         """
         K = len(ind1)
-        S = len(ind1[0])
         
-        # Save original individuals in case we need to reject crossover
-        ind1_original = [row[:] for row in ind1]
-        ind2_original = [row[:] for row in ind2]
-        
-        # Select crossover strategy using adaptive operator selection
-        strategy = self._select_crossover_strategy()
-        self.last_cx_strategy = strategy
-        
-        if strategy == 'single_point':
-            # Single-point crossover at random stage
-            split_point = random.randint(1, S - 1)
-            for k in range(K):
-                ind1[k][split_point:], ind2[k][split_point:] = \
-                    ind2[k][split_point:], ind1[k][split_point:]
-        
-        elif strategy == 'two_point':
-            # Two-point crossover: swap middle segment
-            point1 = random.randint(1, S - 2)
-            point2 = random.randint(point1 + 1, S - 1)
-            for k in range(K):
-                ind1[k][point1:point2], ind2[k][point1:point2] = \
-                    ind2[k][point1:point2], ind1[k][point1:point2]
-        
-        elif strategy == 'uniform':
-            # Uniform crossover: each stage independently chosen
-            for k in range(K):
-                for s in range(S):
-                    if random.random() < 0.5:
-                        ind1[k][s], ind2[k][s] = ind2[k][s], ind1[k][s]
-        
-        elif strategy == 'satellite_swap':
-            # Swap trajectories of random subset of satellites
-            n_swap = random.randint(1, max(1, K // 2))
-            satellites_to_swap = random.sample(range(K), n_swap)
-            for k in satellites_to_swap:
+        # Randomly decide which satellites to swap
+        for k in range(K):
+            if random.random() < 0.5:
+                # Swap entire trajectory for satellite k
                 ind1[k], ind2[k] = ind2[k][:], ind1[k][:]
-        
-        # Check if offspring are propellant-feasible and slot-available
-        traj1 = np.array(ind1, dtype=int)
-        traj2 = np.array(ind2, dtype=int)
-        
-        feasible1 = self.is_propellant_feasible(traj1) and self.check_slot_availability(traj1)
-        feasible2 = self.is_propellant_feasible(traj2) and self.check_slot_availability(traj2)
-        
-        # If either offspring is infeasible, reject crossover (restore parents)
-        if not feasible1 or not feasible2:
-            for k in range(K):
-                ind1[k] = ind1_original[k]
-                ind2[k] = ind2_original[k]
         
         return ind1, ind2
     
     def mutate(self, individual: List) -> Tuple[List,]:
         """
-        Enhanced multi-strategy mutation with adaptive operator selection
-        Uses probability matching to select successful strategies more often
+        Custom mutation: change one satellite's slot in one stage
+        Check propellant budget after mutation
         
         Args:
             individual: Individual to mutate
@@ -442,78 +362,36 @@ class REOSSPTwoPhaseGA:
         K = len(individual)
         S = len(individual[0])
         
-        # Save original for rollback if needed
-        individual_original = [row[:] for row in individual]
+        # Select random satellite and stage
+        k = random.randint(0, K - 1)
+        s = random.randint(0, S - 1)
         
-        # Select mutation strategy using adaptive operator selection
-        strategy = self._select_mutation_strategy()
-        self.last_mut_strategy = strategy
-        
+        # Try to find a valid slot (max 10 attempts)
         max_attempts = 10
-        
-        for attempt in range(max_attempts):
-            # Restore original before attempting mutation
-            for k in range(K):
-                individual[k] = individual_original[k][:]
+        for _ in range(max_attempts):
+            # Generate new slot
+            new_slot = random.randint(1, self.params.J_sk)
             
-            if strategy == 'single_gene':
-                # Original: mutate one satellite's one stage
-                k = random.randint(0, K - 1)
-                s = random.randint(0, S - 1)
-                new_slot = random.randint(1, self.params.J_sk)
-                
-                if not self.params.unavailable_slots[s, new_slot - 1]:
-                    individual[k][s] = new_slot
+            # Check if this slot is available
+            if self.params.unavailable_slots[s, new_slot - 1]:
+                continue  # Slot unavailable, try again
             
-            elif strategy == 'stage_shuffle':
-                # Shuffle slots for all satellites at one stage
-                s = random.randint(0, S - 1)
-                available_slots = [j for j in range(1, self.params.J_sk + 1) 
-                                 if not self.params.unavailable_slots[s, j - 1]]
-                
-                if len(available_slots) >= K:
-                    # Assign different slots to each satellite
-                    selected_slots = random.sample(available_slots, K)
-                    for k in range(K):
-                        individual[k][s] = selected_slots[k]
+            # Save old slot
+            old_slot = individual[k][s]
             
-            elif strategy == 'satellite_shift':
-                # Shift one satellite's entire trajectory by random offset
-                k = random.randint(0, K - 1)
-                shift = random.randint(1, self.params.J_sk - 1)
-                
-                for s in range(S):
-                    new_slot = ((individual[k][s] - 1 + shift) % self.params.J_sk) + 1
-                    if not self.params.unavailable_slots[s, new_slot - 1]:
-                        individual[k][s] = new_slot
+            # Apply mutation
+            individual[k][s] = new_slot
             
-            elif strategy == 'segment_scramble':
-                # Scramble a random segment of one satellite's trajectory
-                k = random.randint(0, K - 1)
-                if S >= 3:
-                    start = random.randint(0, S - 3)
-                    end = random.randint(start + 2, S)
-                    segment = individual[k][start:end]
-                    random.shuffle(segment)
-                    individual[k][start:end] = segment
-            
-            elif strategy == 'adaptive':
-                # Adaptive mutation: mutate multiple genes with decreasing probability
-                for k in range(K):
-                    for s in range(S):
-                        if random.random() < 0.3:  # 30% chance per gene
-                            new_slot = random.randint(1, self.params.J_sk)
-                            if not self.params.unavailable_slots[s, new_slot - 1]:
-                                individual[k][s] = new_slot
-            
-            # Check feasibility
+            # Check if still feasible (propellant budget)
             trajectory = np.array(individual, dtype=int)
-            if self.is_propellant_feasible(trajectory) and self.check_slot_availability(trajectory):
+            if self.is_propellant_feasible(trajectory):
+                # Valid mutation
                 return (individual,)
+            else:
+                # Revert mutation
+                individual[k][s] = old_slot
         
-        # Could not find valid mutation, return original
-        for k in range(K):
-            individual[k] = individual_original[k]
+        # Could not find valid mutation, return unchanged
         return (individual,)
     
     def initialize_population(self) -> List:
@@ -590,35 +468,22 @@ class REOSSPTwoPhaseGA:
         if verbose:
             print(f"\nStarting evolution for {n_generations} generations...")
         
-        prev_best_fitness = 0
-        
         for gen in range(n_generations):
             # Select next generation
             offspring = self.toolbox.select(population, len(population))
             offspring = list(map(self.toolbox.clone, offspring))
             
-            # Track parent fitness for reward calculation
-            parent_fitness = {id(ind): ind.fitness.values[0] if ind.fitness.valid else 0 
-                            for ind in offspring}
-            
-            # Apply crossover and track operators used
-            cx_operators_used = {}
-            for i, (child1, child2) in enumerate(zip(offspring[::2], offspring[1::2])):
+            # Apply crossover
+            for child1, child2 in zip(offspring[::2], offspring[1::2]):
                 if random.random() < self.cx_prob:
-                    parent_avg_fit = (parent_fitness[id(child1)] + parent_fitness[id(child2)]) / 2
                     self.toolbox.mate(child1, child2)
-                    cx_operators_used[id(child1)] = (self.last_cx_strategy, parent_avg_fit)
-                    cx_operators_used[id(child2)] = (self.last_cx_strategy, parent_avg_fit)
                     del child1.fitness.values
                     del child2.fitness.values
             
-            # Apply mutation and track operators used
-            mut_operators_used = {}
+            # Apply mutation
             for mutant in offspring:
                 if random.random() < self.mut_prob:
-                    parent_fit = parent_fitness.get(id(mutant), 0)
                     self.toolbox.mutate(mutant)
-                    mut_operators_used[id(mutant)] = (self.last_mut_strategy, parent_fit)
                     del mutant.fitness.values
             
             # Evaluate individuals with invalid fitness
@@ -626,22 +491,6 @@ class REOSSPTwoPhaseGA:
             fitnesses = map(self.toolbox.evaluate, invalid_ind)
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness.values = fit
-            
-            # Update operator rewards based on fitness improvements
-            for ind in offspring:
-                new_fitness = ind.fitness.values[0]
-                
-                # Update crossover rewards
-                if id(ind) in cx_operators_used:
-                    strategy, parent_fit = cx_operators_used[id(ind)]
-                    improvement = new_fitness - parent_fit
-                    self._update_operator_reward('crossover', strategy, improvement)
-                
-                # Update mutation rewards
-                if id(ind) in mut_operators_used:
-                    strategy, parent_fit = mut_operators_used[id(ind)]
-                    improvement = new_fitness - parent_fit
-                    self._update_operator_reward('mutation', strategy, improvement)
             
             # Replace population
             population[:] = offspring
@@ -654,8 +503,6 @@ class REOSSPTwoPhaseGA:
             
             if verbose and (gen % 10 == 0 or gen == n_generations - 1):
                 print(f"Gen {gen:3d}: Best={best_fit:8.2f}, Avg={avg_fit:8.2f}")
-            
-            prev_best_fitness = best_fit
         
         runtime = time.time() - start_time
         
@@ -670,24 +517,6 @@ class REOSSPTwoPhaseGA:
         # Calculate propellant used
         propellant_used = self._calculate_propellant(best_trajectory)
         
-        # Print operator statistics
-        if verbose:
-            print("\n" + "="*60)
-            print("ADAPTIVE OPERATOR SELECTION STATISTICS")
-            print("="*60)
-            print("\nCrossover Strategy Performance:")
-            for strategy in self.crossover_strategies:
-                usage = self.cx_usage[strategy]
-                reward = self.cx_rewards[strategy]
-                print(f"  {strategy:20s}: Used={usage:4d}, Reward={reward:8.2f}")
-            
-            print("\nMutation Strategy Performance:")
-            for strategy in self.mutation_strategies:
-                usage = self.mut_usage[strategy]
-                reward = self.mut_rewards[strategy]
-                print(f"  {strategy:20s}: Used={usage:4d}, Reward={reward:8.2f}")
-            print("="*60)
-        
         results = {
             'status': 'completed',
             'objective': best_schedule['objective'],
@@ -699,11 +528,7 @@ class REOSSPTwoPhaseGA:
             'best_trajectory': best_trajectory,
             'fitness_history': self.fitness_history,
             'final_population_size': len(population),
-            'generations_completed': n_generations,
-            'crossover_usage': self.cx_usage.copy(),
-            'crossover_rewards': self.cx_rewards.copy(),
-            'mutation_usage': self.mut_usage.copy(),
-            'mutation_rewards': self.mut_rewards.copy()
+            'generations_completed': n_generations
         }
         
         return results

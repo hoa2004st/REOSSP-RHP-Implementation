@@ -39,7 +39,7 @@ df_1_0['unavailable_prob'] = 1.0
 df_all = pd.concat([df_0_0, df_0_1, df_0_2, df_0_5, df_0_8, df_1_0], ignore_index=True)
 # Read Two-Phase GA results
 try:
-    df_tp_ga = pd.read_csv('results/results_tp_ga.csv')
+    df_tp_ga = pd.read_csv('results/results_tp_ga_v2.csv')
     has_tp_ga = True
     print("✓ Two-Phase GA results loaded")
     print(f"  Total instances: {len(df_tp_ga)}")
@@ -69,12 +69,6 @@ if has_tp_ga:
             'REOSSP Exact': ('reossp_exact_runtime_minutes', df_all),
             'REOSSP RHP': ('reossp_rhp_runtime_minutes', df_all),
             'Two-Phase GA': ('tp_ga_runtime_minutes', df_tp_ga)
-        },
-        'Figure of Merit': {
-            'EOSSP Baseline': ('eossp_figure_of_merit', df_all),
-            'REOSSP Exact': ('reossp_exact_figure_of_merit', df_all),
-            'REOSSP RHP': ('reossp_rhp_figure_of_merit', df_all),
-            'Two-Phase GA': ('tp_ga_figure_of_merit', df_tp_ga)
         }
     }
 else:
@@ -91,16 +85,11 @@ else:
             'EOSSP Baseline': ('eossp_runtime_minutes', df_all),
             'REOSSP Exact': ('reossp_exact_runtime_minutes', df_all),
             'REOSSP RHP': ('reossp_rhp_runtime_minutes', df_all)
-        },
-        'Figure of Merit': {
-            'EOSSP Baseline': ('eossp_figure_of_merit', df_all),
-            'REOSSP Exact': ('reossp_exact_figure_of_merit', df_all),
-            'REOSSP RHP': ('reossp_rhp_figure_of_merit', df_all)
         }
     }
 
-# Create figure with 3 subplots
-fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+# Create figure with 2 subplots
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 fig.suptitle('Comparison of Methods Across Different Unavailable Probability Settings', fontsize=16, fontweight='bold')
 
 print("\n" + "="*80)

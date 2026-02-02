@@ -8,7 +8,7 @@ import csv
 import os
 from datetime import datetime
 from parameters import InstanceParameters
-from reossp_two_phase_ga import REOSSPTwoPhaseGA
+from reossp_tpga_v2 import REOSSPTwoPhaseGA
 
 print("="*80)
 print("TESTING TWO-PHASE GENETIC ALGORITHM")
@@ -16,9 +16,7 @@ print("="*80)
 
 # Problem parameters
 SK_pairs = [(8, 5), (8, 6), (9, 5), (9, 6), (12, 5), (12, 6)]
-# unavailable_probs = [0.0, 0.1, 0.2, 0.5, 1.0]
-SK_pairs = [(8, 5)]
-unavailable_probs = [0.1]
+unavailable_probs = [0.0, 0.2, 0.5, 0.8, 1.0]
 J_sk, T = 20, 36*24*2
 
 # GA parameters
@@ -30,7 +28,7 @@ csv_filename = "results/results_tp_ga_v2.csv"
 file_exists = os.path.isfile(csv_filename)
 
 # Counter for instance ID
-instance_counter = 0
+instance_counter = 6
 
 # Iterate through all unavailable probabilities
 for prob in unavailable_probs:
@@ -118,12 +116,6 @@ for prob in unavailable_probs:
             'tp_ga_generations_completed': results['generations_completed'],
             'tp_ga_final_population_size': results['final_population_size'],
         }
-
-        # Calculate figure of merit (objective / runtime)
-        if results['runtime_minutes'] > 0:
-            csv_data['tp_ga_figure_of_merit'] = results['objective'] / results['runtime_minutes']
-        else:
-            csv_data['tp_ga_figure_of_merit'] = 'N/A'
 
         # Write to CSV (append mode)
         with open(csv_filename, 'a', newline='') as csvfile:

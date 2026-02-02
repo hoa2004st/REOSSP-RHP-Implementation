@@ -190,22 +190,6 @@ for pair_idx, (S, K) in enumerate(SK_pairs, 1):
         'reossp_rhp_num_stages_solved': results3.get('num_stages_solved', S),
     }
 
-    # Calculate figure of merit (objective / runtime) for each method
-    if results1['runtime_minutes'] > 0:
-        csv_data['eossp_figure_of_merit'] = results1['objective'] / results1['runtime_minutes']
-    else:
-        csv_data['eossp_figure_of_merit'] = 'N/A'
-
-    if results2['runtime_minutes'] > 0:
-        csv_data['reossp_exact_figure_of_merit'] = results2['objective'] / results2['runtime_minutes']
-    else:
-        csv_data['reossp_exact_figure_of_merit'] = 'N/A'
-
-    if results3['runtime_minutes'] > 0:
-        csv_data['reossp_rhp_figure_of_merit'] = results3['objective'] / results3['runtime_minutes']
-    else:
-        csv_data['reossp_rhp_figure_of_merit'] = 'N/A'
-
     # Calculate comparison metrics
     if results1['objective'] > 0:
         csv_data['exact_vs_baseline_obj_diff'] = results2['objective'] - results1['objective']
